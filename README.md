@@ -1,4 +1,4 @@
-# Job Application Assistant for Reza - Complete Package
+# Job Application Assistant for Reza
 
 A highly specialized AI assistant with **Command-Line** and **Graphical User Interfaces** to help evaluate job fit and generate high-quality, tailored application materials for ML/AI roles.
 
@@ -8,11 +8,11 @@ A highly specialized AI assistant with **Command-Line** and **Graphical User Int
 - **Python API** - Full programmatic access
 - **Command-Line Interface** - Interactive terminal interface
 - **Graphical User Interface** - Modern, user-friendly GUI (NEW!)
-- All powered by OpenAI's GPT models with your custom profile
+- All powered by OpenAI's GPT models with Reza's custom profile
 
 ### Three Ways to Use
 
-1. **GUI (Easiest)** ⭐ Recommended for most users
+1. **GUI (Easiest)** ⭐
    ```bash
    python launch.py
    # Or: python gui_modern.py
@@ -41,7 +41,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env and add: OPENAI_API_KEY=your-key-here
 
-# 3. Add your CV as reza_cv.pdf
+# 3. Add your CV as *.pdf
 
 # 4. Launch!
 python launch.py
@@ -84,18 +84,17 @@ python cli.py --job-file job.txt --action full-package
 ### Examples & Testing
 - `examples.py` - Usage examples
 - `test_setup.py` - Setup verification
-- `.env.example` - Environment template
 
 ### Configuration
 - `requirements.txt` - Python dependencies
-- `.env` - Your API key (you create this)
-- `reza_cv.pdf` - Your CV (you add this)
+- `.env` - Your API key
+- `reza_cv.pdf` - Reza's CV
 
 ## ✨ Features
 
 ### Job Fit Evaluation
 - Strategic analysis with honest gap assessment
-- Identifies hidden advantages from your unique background
+- Identifies hidden advantages from Reza's unique background
 - Recommends whether to apply
 
 ### CV Summary Generation
@@ -105,13 +104,13 @@ python cli.py --job-file job.txt --action full-package
 
 ### Cover Letter Writing
 - Human-sounding, no AI jargon
-- Specific examples from your actual CV
+- Specific examples from Reza's CV
 - Strategically positioned for each role
 
 ### Complete Package
 - All materials at once (30-60 seconds)
 - Consistent narrative across all documents
-- Ready to submit
+- Ready to submit (Not really!)
 
 ## 🖥️ GUI Features
 
@@ -127,7 +126,7 @@ python cli.py --job-file job.txt --action full-package
 2. **📊 Evaluate** - Analyze job fit before applying
 3. **✍️ Generate** - Create CV summaries and cover letters
 4. **📦 Package** - Generate everything at once
-5. **📜 History** - View past applications (coming soon)
+5. **📜 History** - View past applications (coming soon!!)
 
 ### User-Friendly Features
 - Paste job descriptions directly
@@ -151,7 +150,7 @@ python cli.py --job-file job.txt --action full-package
 **First Time Setup:**
 1. Launch: `python launch.py`
 2. Go to Setup tab
-3. Browse for your CV (or use default `reza_cv.pdf`)
+3. Browse for your CV
 4. Select model (recommend gpt-4o)
 5. Click "Initialize Assistant"
 
@@ -250,7 +249,7 @@ Using **gpt-3.5-turbo** (budget):
 - Status output area
 
 ### Evaluate Tab
-- Job description input (large text area)
+- Job description input
 - Evaluate button
 - Results display
 - Save/copy buttons
@@ -280,7 +279,8 @@ OPENAI_API_KEY=sk-your-actual-api-key-here
 
 ### Model Options
 
-- `gpt-4o` - Best quality, recommended, $$$
+- `gpt-5.2` - Best quality, $$$$
+- `gpt-4o` - Better quality, recommended, $$$
 - `gpt-4-turbo` - Good balance, $$
 - `gpt-4` - Older, more expensive, $$$
 - `gpt-3.5-turbo` - Budget option, $
@@ -314,7 +314,7 @@ python cli.py
 
 ### "CV File Not Found"
 
-1. Place CV as `reza_cv.pdf` in project directory
+1. Place CV as `*.pdf` in project directory
 2. Or use Browse button in GUI
 3. Or specify path: `python cli.py /path/to/cv.pdf`
 
@@ -441,7 +441,7 @@ python test_setup.py
 
 1. **Test with cheaper model first**
    - Use gpt-3.5-turbo to test
-   - Switch to gpt-4o for final version
+   - Switch to gpt-4o or gpt-5.2 for final version
    - Saves money while learning
 
 2. **Save evaluations**
@@ -495,7 +495,7 @@ Personal use. Modify as needed.
 
 ## 🙏 Credits
 
-Built for Reza's job search journey. Powered by OpenAI's GPT models.
+Built by Reza for his job search journey. Powered by OpenAI's GPT models.
 
 ## 📞 Support
 
