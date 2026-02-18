@@ -111,7 +111,7 @@ class JobApplicationGUI:
         # Title
         title = tk.Label(
             main_frame,
-            text="Setup & Configuration",
+            text="Setup & Config-uration",
             font=('Arial', 20, 'bold'),
             bg=self.bg_color,
             fg=self.text_color
@@ -250,7 +250,7 @@ class JobApplicationGUI:
         # Title
         title = tk.Label(
             main_frame,
-            text="Evaluate Job Fit",
+            text="Hi Reza!",
             font=('Arial', 20, 'bold'),
             bg=self.bg_color,
             fg=self.text_color
