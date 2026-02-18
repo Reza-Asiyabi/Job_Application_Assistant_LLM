@@ -61,16 +61,16 @@ class ModernJobApplicationGUI:
         if BOOTSTRAP_AVAILABLE:
             header = ttk.Frame(self.root, bootstyle="primary")
         else:
-            header = tk.Frame(self.root, bg="#2196F3", height=80)
+            header = tk.Frame(self.root, bg="#071e31", height=80)
         
         header.pack(fill='x', side='top')
         
         # Title
         title_label = tk.Label(
             header,
-            text="🎯 Job Application Assistant",
+            text="🎯 Hi Reza!",
             font=('Segoe UI', 24, 'bold'),
-            bg="#2196F3" if not BOOTSTRAP_AVAILABLE else None,
+            bg="#071e31" if not BOOTSTRAP_AVAILABLE else None,
             fg="white",
             pady=15
         )
@@ -81,7 +81,7 @@ class ModernJobApplicationGUI:
             header,
             text="AI-Powered Job Application Support for Reza",
             font=('Segoe UI', 11),
-            bg="#2196F3" if not BOOTSTRAP_AVAILABLE else None,
+            bg="#071e31" if not BOOTSTRAP_AVAILABLE else None,
             fg="white",
             pady=15
         )
@@ -197,10 +197,10 @@ class ModernJobApplicationGUI:
         cv_entry.grid(row=0, column=1, padx=(15, 10), pady=10)
         
         if BOOTSTRAP_AVAILABLE:
-            browse_btn = ttk.Button(cv_inner, text="Browse", command=self.browse_cv, bootstyle="info-outline")
+            browse_btn = ttk.Button(cv_inner, text="Browse", font=('Segoe UI', 10, 'bold'), command=self.browse_cv, bootstyle="info-outline")
         else:
-            browse_btn = tk.Button(cv_inner, text="Browse", command=self.browse_cv, 
-                                   bg='#2196F3', fg='white', relief='flat', padx=20, pady=5)
+            browse_btn = tk.Button(cv_inner, text="Browse", font=('Segoe UI', 10, 'bold'), command=self.browse_cv,
+                                   bg='#071e31', fg='white', relief='flat', padx=20, pady=5)
         browse_btn.grid(row=0, column=2, pady=10)
         
         # API Configuration
@@ -224,7 +224,7 @@ class ModernJobApplicationGUI:
         model_combo = ttk.Combobox(
             api_inner,
             textvariable=self.model_var,
-            values=["gpt-4o (Recommended)", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo (Budget)"],
+            values=["gpt-5.2", "gpt-4o (Recommended)", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo (Budget)"],
             state='readonly',
             width=40
         )
@@ -243,7 +243,7 @@ class ModernJobApplicationGUI:
             text="⏳ Checking...",
             font=('Segoe UI', 10),
             bg='white' if not BOOTSTRAP_AVAILABLE else None,
-            fg='#FF9800'
+            fg='#a05830'
         )
         self.api_status_label.grid(row=1, column=1, sticky='w', padx=(15, 0), pady=10)
         
@@ -256,7 +256,7 @@ class ModernJobApplicationGUI:
                                  command=self.initialize_assistant, bootstyle="success", width=30)
         else:
             init_btn = tk.Button(btn_frame, text="🚀 Initialize Assistant",
-                               command=self.initialize_assistant, bg='#4CAF50', fg='white',
+                               command=self.initialize_assistant, bg='#186a1b', fg='white',
                                font=('Segoe UI', 12, 'bold'), relief='flat', padx=40, pady=12)
         init_btn.pack()
         
@@ -283,7 +283,7 @@ class ModernJobApplicationGUI:
                                  command=self.test_configuration, bootstyle="info-outline")
         else:
             test_btn = tk.Button(container, text="🧪 Test Configuration",
-                               command=self.test_configuration, bg='#2196F3', fg='white',
+                               command=self.test_configuration, bg='#071e31', fg='white',
                                relief='flat', padx=25, pady=8)
         test_btn.pack()
         
@@ -336,17 +336,17 @@ class ModernJobApplicationGUI:
         btn_frame.pack(fill='x', pady=(0, 15))
         
         if BOOTSTRAP_AVAILABLE:
-            ttk.Button(btn_frame, text="🔍 Evaluate Fit", command=self.evaluate_job_fit,
+            ttk.Button(btn_frame, text="🔍 Evaluate Fit", font=('Segoe UI', 10, 'bold'), command=self.evaluate_job_fit,
                       bootstyle="success", width=20).pack(side='left', padx=5)
             ttk.Button(btn_frame, text="📋 Paste from Clipboard", command=self.paste_from_clipboard,
                       bootstyle="info-outline", width=20).pack(side='left', padx=5)
-            ttk.Button(btn_frame, text="🗑️ Clear", command=lambda: self.eval_job_text.delete(1.0, tk.END),
+            ttk.Button(btn_frame, text="🗑️ Clear", font=('Segoe UI', 10, 'bold'), command=lambda: self.eval_job_text.delete(1.0, tk.END),
                       bootstyle="danger-outline", width=15).pack(side='left', padx=5)
         else:
-            tk.Button(btn_frame, text="🔍 Evaluate Fit", command=self.evaluate_job_fit,
-                     bg='#4CAF50', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
-            tk.Button(btn_frame, text="🗑️ Clear", command=lambda: self.eval_job_text.delete(1.0, tk.END),
-                     bg='#FF9800', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
+            tk.Button(btn_frame, text="🔍 Evaluate Fit", font=('Segoe UI', 10, 'bold'), command=self.evaluate_job_fit,
+                     bg='#186a1b', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
+            tk.Button(btn_frame, text="🗑️ Clear", font=('Segoe UI', 10, 'bold'), command=lambda: self.eval_job_text.delete(1.0, tk.END),
+                     bg='#a05830', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
         
         # Results section
         if BOOTSTRAP_AVAILABLE:
@@ -378,7 +378,7 @@ class ModernJobApplicationGUI:
         else:
             tk.Button(action_frame, text="💾 Save Results",
                      command=lambda: self.save_results(self.eval_results.get(1.0, tk.END)),
-                     bg='#2196F3', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
+                     bg='#071e31', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
         
         return tab
     
@@ -441,15 +441,15 @@ class ModernJobApplicationGUI:
         gen_btn_frame.pack(fill='x', padx=15, pady=(0, 10))
         
         if BOOTSTRAP_AVAILABLE:
-            ttk.Button(gen_btn_frame, text="📝 CV Summary", command=self.generate_cv_summary,
+            ttk.Button(gen_btn_frame, text="📝 CV Summary", font=('Segoe UI', 10, 'bold'), command=self.generate_cv_summary,
                       bootstyle="success", width=20).pack(fill='x', pady=3)
-            ttk.Button(gen_btn_frame, text="✉️ Cover Letter", command=self.generate_cover_letter,
+            ttk.Button(gen_btn_frame, text="✉️ Cover Letter", font=('Segoe UI', 10, 'bold'), command=self.generate_cover_letter,
                       bootstyle="primary", width=20).pack(fill='x', pady=3)
         else:
-            tk.Button(gen_btn_frame, text="📝 CV Summary", command=self.generate_cv_summary,
-                     bg='#4CAF50', fg='white', relief='flat', pady=8).pack(fill='x', pady=3)
-            tk.Button(gen_btn_frame, text="✉️ Cover Letter", command=self.generate_cover_letter,
-                     bg='#2196F3', fg='white', relief='flat', pady=8).pack(fill='x', pady=3)
+            tk.Button(gen_btn_frame, text="📝 CV Summary", font=('Segoe UI', 10, 'bold'), command=self.generate_cv_summary,
+                     bg='#186a1b', fg='white', relief='flat', pady=8).pack(fill='x', pady=3)
+            tk.Button(gen_btn_frame, text="✉️ Cover Letter", font=('Segoe UI', 10, 'bold'), command=self.generate_cover_letter,
+                     bg='#071e31', fg='white', relief='flat', pady=8).pack(fill='x', pady=3)
         
         # Right panel - Output
         right_panel = tk.Frame(paned, bg='#f5f5f5' if not BOOTSTRAP_AVAILABLE else None)
@@ -494,10 +494,10 @@ class ModernJobApplicationGUI:
         else:
             tk.Button(output_btn_frame, text="💾 Save",
                      command=lambda: self.save_results(self.gen_output.get(1.0, tk.END)),
-                     bg='#4CAF50', fg='white', relief='flat', padx=15, pady=8).pack(side='left', padx=3)
+                     bg='#186a1b', fg='white', relief='flat', padx=15, pady=8).pack(side='left', padx=3)
             tk.Button(output_btn_frame, text="📋 Copy",
                      command=lambda: self.copy_to_clipboard(self.gen_output.get(1.0, tk.END)),
-                     bg='#2196F3', fg='white', relief='flat', padx=15, pady=8).pack(side='left', padx=3)
+                     bg='#071e31', fg='white', relief='flat', padx=15, pady=8).pack(side='left', padx=3)
         
         return tab
     
@@ -572,7 +572,7 @@ class ModernJobApplicationGUI:
                                command=self.generate_package, bootstyle="success", width=35)
         else:
             gen_btn = tk.Button(btn_container, text="🚀 Generate Complete Package",
-                              command=self.generate_package, bg='#4CAF50', fg='white',
+                              command=self.generate_package, bg='#186a1b', fg='white',
                               font=('Segoe UI', 13, 'bold'), relief='flat', padx=50, pady=15)
         gen_btn.pack()
         
@@ -615,7 +615,7 @@ class ModernJobApplicationGUI:
         else:
             tk.Button(action_frame, text="💾 Save Package",
                      command=lambda: self.save_results(self.pkg_output.get(1.0, tk.END)),
-                     bg='#2196F3', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
+                     bg='#071e31', fg='white', relief='flat', padx=20, pady=8).pack(side='left', padx=5)
         
         return tab
     
@@ -719,7 +719,7 @@ class ModernJobApplicationGUI:
                 )
                 return
             
-            self.api_status_label.config(text="✅ Connected", fg="#4CAF50")
+            self.api_status_label.config(text="✅ Connected", fg="#186a1b")
             self.setup_status.insert(tk.END, "✅ API key found\n")
             
             # Extract model name without description
