@@ -401,8 +401,8 @@ class JobAssistantV2:
         lb = tk.Frame(left, bg=C["bg"])
         lb.pack(fill="x", pady=(6, 0))
         self._btn(lb, "CV Summary",      self._generate_cv_summary,              style="primary").pack(side="left", padx=(0, 8))
-        self._btn(lb, "Cover Letter",    self._generate_cover_letter,            style="secondary").pack(side="left", padx=(0, 8))
-        self._btn(lb, "LinkedIn Message",self._generate_linkedin_message,        style="secondary").pack(side="left", padx=(0, 8))
+        self._btn(lb, "Cover Letter",    self._generate_cover_letter,            style="primary").pack(side="left", padx=(0, 8))
+        self._btn(lb, "LinkedIn Message",self._generate_linkedin_message,        style="primary").pack(side="left", padx=(0, 8))
         self._btn(lb, "Paste Clipboard", lambda: self._paste_to(self.gen_job_text), style="ghost").pack(side="left")
 
         # Right
