@@ -314,7 +314,7 @@ class JobAssistantV2:
         model_row = tk.Frame(api_card, bg=C["surface"])
         model_row.pack(anchor="w", pady=(0, 12))
         self._model_btns = {}
-        for m in ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]:
+        for m in ["gpt-5.2", "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]:
             b = tk.Button(model_row, text=m, relief="flat", bd=0, cursor="hand2",
                           font=(FF, 9), bg=C["input_bg"], fg=C["text_dim"],
                           activebackground=C["accent_dim"], activeforeground=C["text"],
@@ -401,8 +401,8 @@ class JobAssistantV2:
         lb = tk.Frame(left, bg=C["bg"])
         lb.pack(fill="x", pady=(6, 0))
         self._btn(lb, "CV Summary",      self._generate_cv_summary,              style="primary").pack(side="left", padx=(0, 8))
-        self._btn(lb, "Cover Letter",    self._generate_cover_letter,            style="secondary").pack(side="left", padx=(0, 8))
-        self._btn(lb, "LinkedIn Message",self._generate_linkedin_message,        style="secondary").pack(side="left", padx=(0, 8))
+        self._btn(lb, "Cover Letter",    self._generate_cover_letter,            style="primary").pack(side="left", padx=(0, 8))
+        self._btn(lb, "LinkedIn Message",self._generate_linkedin_message,        style="primary").pack(side="left", padx=(0, 8))
         self._btn(lb, "Paste Clipboard", lambda: self._paste_to(self.gen_job_text), style="ghost").pack(side="left")
 
         # Right
