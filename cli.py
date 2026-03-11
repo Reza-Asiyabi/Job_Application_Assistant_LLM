@@ -5,16 +5,18 @@ Provides a user-friendly command-line interface for the assistant
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from job_application_assistant import JobApplicationAssistant
 
 
 def print_banner():
     """Print welcome banner"""
     print("\n" + "="*70)
-    print("  JOB APPLICATION ASSISTANT FOR REZA")
-    print("  Specialized AI for evaluating fit and generating application materials")
+    print("  JOB APPLICATION ASSISTANT")
+    print("  AI for evaluating fit and generating application materials")
     print("="*70 + "\n")
 
 
@@ -189,15 +191,18 @@ def interactive_mode(assistant: JobApplicationAssistant):
 
 def main():
     """Main entry point for CLI"""
+    load_dotenv()
+    default_cv_path = os.getenv("CV_PATH", "cv.pdf")
+
     parser = argparse.ArgumentParser(
-        description="Job Application Assistant for Reza - AI-powered job application support"
+        description="Job Application Assistant - AI-powered job application support"
     )
-    
+
     parser.add_argument(
         'cv_path',
         nargs='?',
-        default='reza_cv.pdf',
-        help='Path to CV PDF file (default: reza_cv.pdf)'
+        default=default_cv_path,
+        help=f'Path to CV PDF file (default: {default_cv_path})'
     )
     
     parser.add_argument(

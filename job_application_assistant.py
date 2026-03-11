@@ -16,20 +16,24 @@ import PyPDF2
 
 class JobApplicationAssistant:
     """
-    An AI assistant specialized in job application support for Reza.
-    Uses OpenAI API with a custom profile and CV analysis.
+    An AI assistant for evaluating job fit and generating application materials.
+    Uses OpenAI API with a personal profile (profile.md) and CV analysis.
     """
 
-    def __init__(self, cv_path: str):
+    def __init__(self, cv_path: str = None):
         load_dotenv()
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in .env file")
 
+        if cv_path is None:
+            cv_path = os.getenv("CV_PATH", "cv.pdf")
+
         self.client = OpenAI(api_key=api_key)
         self.cv_text = self._extract_cv_text(cv_path)
         self.system_prompt = self._load_system_prompt()
+        self.user_name = self._extract_user_name()
 
         # Stores the most recent fit evaluation so Generate/Package tabs
         # can use it as context without requiring manual re-entry.
@@ -69,40 +73,30 @@ class JobApplicationAssistant:
         print("  Profile loaded from built-in prompt")
         return self._builtin_system_prompt()
 
+    def _extract_user_name(self) -> str:
+        """Extract the candidate's name from the system prompt (looks for 'Name: ...' line)."""
+        for line in self.system_prompt.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("name:"):
+                name = stripped[5:].strip()
+                if name and not name.startswith("["):
+                    return name
+        return "the candidate"
+
     def _builtin_system_prompt(self) -> str:
-        return """You are a highly specialized career-assistant LLM dedicated to supporting Reza with job applications.
-Your purpose is to strategically evaluate job fit, estimate expected salary for Reza in this position, position Reza optimally, and produce high-quality, human-sounding application materials tailored to each role.
+        return """You are a highly specialized career-assistant LLM dedicated to supporting a job candidate with applications.
+Your purpose is to strategically evaluate job fit, estimate expected salary, position the candidate optimally, and produce high-quality, human-sounding application materials tailored to each role.
 - Think in first principles, be direct, adapt to context. Skip "great question" fluff. Verifiable facts over platitudes.
-- Banned phrases: emdashes, watery language, "it's not about X, it's about Y", "here's the kicker"
+- Banned phrases: em-dashes, watery language, "it's not about X, it's about Y", "here's the kicker"
 - Humanize all your output
-- Reason at 100% max ultimate power, think step by step
+- Reason at maximum depth, step by step
 - Self-critique every response: rate 1-10, fix weaknesses, iterate. User sees only final version.
 - Useful over polite. When wrong, say so and show better.
 - Never hallucinate specifics.
 
-You must treat the information below as ground truth about Reza unless explicitly updated.
+You must treat the information in profile.md as ground truth about the candidate.
 
-1. Identity & Background
-Name: Reza
-Current role: Postdoctoral Researcher at The University of Edinburgh and the UK National Centre for Earth Observation (NCEO)
-Location: United Kingdom
-Work authorization: UK Global Talent Visa (no sponsorship required in the UK)
-Career stage: researcher transitioning toward industry ML/AI roles
-Education:
-- PhD, Electronics, Telecommunications and Information Technology, University POLITEHNICA Bucharest (UPB), Romania. Marie Curie fellowship (EU Horizon 2020 MENELAOS-NT ITN). Dissertation: "Deep Learning for SAR Data in Presence of Adversarial Samples." (Dec 2020 - Dec 2023)
-- MSc, Remote Sensing Engineering, K.N. Toosi University of Technology, Tehran, Iran. (Sep 2016 - Sep 2018)
-- BSc, Geodesy and Geomatics, K.N. Toosi University of Technology, Tehran, Iran. (Sep 2012 - Sep 2016)
-
-2. Technical Skills
-Primary: Deep Learning, ML (PyTorch primary, TensorFlow secondary), architecture design (CNNs, Transformers, LSTMs, Autoencoders, Complex-Valued Networks, Concept Bottleneck Models), complex-valued neural networks, physics-aware ML, multi-modal learning, end-to-end model design.
-Domain: Earth Observation (EO), SAR, multispectral, geospatial ML pipelines, remote sensing.
-Tools: Python (NumPy, SciPy, Pandas, Scikit-Learn, OpenCV), PyTorch, TensorFlow, Google Earth Engine, SNAP, ArcGIS, QGIS, ENVI.
-
-3. Career Direction: transitioning to industry ML/AI roles. Preference: remain in UK. Target: roles that reward depth.
-
-4. CV Highlights: 500+ Google Scholar citations. Projects with ESA, Stanford, Edinburgh, NCEO. PG-CBM architecture. GAIL fellowship (2025-present). Marie Curie fellowship (2020-2023).
-
-9. Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say so. Optimize for long-term career trajectory."""
+Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say so. Optimize for long-term career trajectory."""
 
     # ─────────────────────────────────────────────────────────────────────────
     # Core API helper
@@ -167,8 +161,8 @@ Tools: Python (NumPy, SciPy, Pandas, Scikit-Learn, OpenCV), PyTorch, TensorFlow,
 
     def _create_cv_context(self) -> str:
         return (
-            "## REZA'S COMPLETE CV\n\n"
-            "Below is the full text extracted from Reza's CV. "
+            f"## {self.user_name.upper()}'S CV\n\n"
+            "Below is the full text extracted from the candidate's CV. "
             "Use this as the authoritative source for specific project details, "
             "publications, technical skills, job titles, dates, and achievements.\n\n"
             f"CV TEXT:\n---\n{self.cv_text}\n---"
@@ -207,7 +201,7 @@ Provide a comprehensive job fit evaluation with this structure:
 2. **MATCH ANALYSIS**:
    - Core strengths that align
    - Relevant experience from CV
-   - Unique advantages Reza brings
+   - Unique advantages the candidate brings
 
 3. **GAPS AND RISKS**:
    - Missing skills or experience
@@ -215,7 +209,7 @@ Provide a comprehensive job fit evaluation with this structure:
    - Any red flags
 
 4. **SALARY ESTIMATE**:
-   - Expected salary range for Reza in this role
+   - Expected salary range for the candidate in this role
    - Reasoning: company stage, location, seniority signals, role type
 
 5. **STRATEGIC POSITIONING**:
@@ -290,7 +284,7 @@ Requirements:
 - 3-5 natural, flowing sentences — similar length to the examples
 - Use the evaluation to decide what to emphasize and what to downplay for THIS role
 - No generic buzzwords, no hollow AI phrases
-- Must sound like Reza: sharp, precise, confident, human"""
+- Must sound human: sharp, precise, confident — reflect the candidate's actual voice"""
 
         result = self._call_api(
             messages=[
@@ -349,21 +343,18 @@ Requirements:
 
 Write a compelling cover letter. Follow these examples as reference for tone, structure, and length:
 
-Example 1:
-"Dear Mistral AI Hiring Team, I am an AI/ML researcher with a PhD and over five years of experience developing scalable deep learning systems for complex, high-dimensional, real-world data. I am excited to apply for the Research Engineer - Machine Learning position at Mistral AI, where my expertise in multimodal, physics-informed, and production-ready AI aligns closely with your mission. Throughout my career, I have bridged cutting-edge AI research with deployable solutions. At the University of Edinburgh, I designed Process-Guided Concept Bottleneck Models (PG-CBM), a modular, physics-aware architecture that improved robustness and interpretability for real-world data. Across projects with the European Space Agency and Stanford University, I built end-to-end ML pipelines for processing massive multimodal Earth Observation datasets. What excites me most about Mistral AI is the opportunity to work at the intersection of research and production, where I can turn prototypes into scalable, production-grade components. I would be thrilled to bring my experience in large-scale ML, multimodal modeling, and research-to-production engineering to Mistral AI. Warm regards, Reza M. Asiyabi"
-
-Example 2:
-"Dear Nyxium Team, I am a Geospatial AI and Machine Learning researcher with a PhD and several years of experience building applied spatial-ML systems from Earth observation data. I am excited to apply for the Geospatial AI Engineer role because Nyxium's focus on turning complex geospatial data into practical decision-making tools strongly aligns with how I approach applied AI and where I want to take the next step of my career. In my current role at the University of Edinburgh and the UK National Centre for Earth Observation (NCEO), I design and implement end-to-end geospatial ML systems. A recent example: the Process-Guided Concept Bottleneck Model (PG-CBM), a modular AI framework for estimating forest attributes from multi-sensor EO data, where explainability was a first-class design goal. Through collaborations with ESA, Stanford, Edinburgh, and NCEO, I have worked extensively with SAR, multispectral, hyperspectral, and LiDAR data at scale. What attracts me to Nyxium is the opportunity to build geospatial intelligence systems that directly inform real-world decisions. I would welcome the opportunity to contribute my experience to Nyxium's platform. Warm regards, Reza M. Asiyabi"
+Structure the cover letter as follows:
+- Opening: name the specific company and role; state one genuine reason for interest; give a clear value proposition. NEVER open with "I am writing to apply for..."
+- Middle (1-2 paragraphs): 1-2 concrete, specific examples from the CV with outcomes — described in terms of transferable value, not just task descriptions
+- Closing: one forward-looking sentence. Confident, not pushy or groveling.
+- Sign off: "Warm regards," followed by the candidate's full name as given in the profile.
 
 Requirements:
-- 4-5 tight paragraphs, 350-500 words — similar structure and length to the examples
+- 4-5 tight paragraphs, 350-500 words total
 - Use the evaluation to decide the strategic angle, what to emphasize, what to downplay
-- Opening: name the specific company and role; state one genuine reason for interest; give a clear value proposition. NEVER open with "I am writing to apply for..."
-- Middle: 1-2 concrete, specific examples from the CV with outcomes
-- Closing: forward-looking, confident, not pushy or groveling
 - Professional but human — reads like a smart person wrote it, not a template
 - No hollow buzzwords, no exaggerated claims, no AI-sounding phrases
-- Sign off as: Warm regards, Reza M. Asiyabi"""
+- Draw only from facts in the CV — never fabricate metrics or project details"""
 
         result = self._call_api(
             messages=[
@@ -420,7 +411,7 @@ Requirements:
 Provide a strong, specific answer to this application question.
 
 Requirements:
-- Draw directly from Reza's CV experiences — no generic answers
+- Draw directly from the CV experiences provided — no generic answers
 - Tailor the answer to this specific role and company
 - Natural, human language — confident, not a rehearsed speech
 - Appropriate length: concise for short questions, structured for open-ended ones
@@ -475,19 +466,19 @@ Requirements:
 
 ---
 
-Generate comprehensive interview preparation for Reza for this specific role. Structure it as four parts:
+Generate comprehensive interview preparation for the candidate for this specific role. Structure it as four parts:
 
 PART 1: TECHNICAL QUESTIONS AND ANSWERS
 Generate 5-7 technical questions this interview panel is likely to ask, based on the job requirements.
-For each question, write a strong, specific answer grounded in Reza's actual CV — real projects, real architectures, real results.
-Not hypothetical. Draw from PG-CBM, SAR deep learning, EO pipelines, ESA/Stanford/NCEO work where relevant.
+For each question, write a strong, specific answer grounded in the candidate's actual CV — real projects, real results.
+Not hypothetical. Draw from specific projects and achievements in the CV where relevant.
 
 PART 2: BEHAVIORAL QUESTIONS (STAR FORMAT)
 Generate 4-5 behavioral questions focused on: cross-functional collaboration, handling ambiguity, technical leadership, shipping under constraints, failure and recovery.
-For each question: write the question, then a complete STAR answer (Situation, Task, Action, Result) drawn from Reza's actual experience.
+For each question: write the question, then a complete STAR answer (Situation, Task, Action, Result) drawn from the candidate's actual experience.
 
-PART 3: QUESTIONS REZA SHOULD ASK THEM
-Generate 5-6 sharp, intelligent questions for Reza to ask the interviewer. These should:
+PART 3: QUESTIONS THE CANDIDATE SHOULD ASK THEM
+Generate 5-6 sharp, intelligent questions for the candidate to ask the interviewer. These should:
 - Signal genuine technical curiosity and strategic thinking
 - Probe team culture, technical stack decisions, research-to-production balance, and what "good" looks like in this role
 - Avoid generic questions like "what does a typical day look like"
@@ -495,7 +486,7 @@ Generate 5-6 sharp, intelligent questions for Reza to ask the interviewer. These
 
 PART 4: CULTURE AND MOTIVATION QUESTIONS
 Generate 3-4 questions about "why this company / why this role" that the interviewer might ask.
-For each: write the question and a strong, honest answer connecting Reza's actual motivations and career direction to this specific company's mission.
+For each: write the question and a strong, honest answer connecting the candidate's actual motivations and career direction to this specific company's mission.
 
 Every answer must sound like a confident, senior technical person — not a rehearsed script.
 Be specific. Reference actual CV content throughout."""
@@ -551,18 +542,18 @@ Be specific. Reference actual CV content throughout."""
 
 ---
 
-Write a short LinkedIn outreach message from Reza to a recruiter or hiring manager for this role.
+Write a short LinkedIn outreach message from the candidate to a recruiter or hiring manager for this role.
 
 Greeting to use: {greeting}
 
 Requirements:
 - Maximum 200-250 words — brevity is critical for LinkedIn
 - Opens with something specific about the company or role, NOT "I came across your posting" or generic openers
-- 1-2 sentences on why Reza is a strong fit — pick the most compelling angle, be concrete
+- 1-2 sentences on why the candidate is a strong fit — pick the most compelling angle, be concrete
 - A clear, low-friction call to action (a quick call, expressing interest — not "please consider my application")
 - Warm, professional tone — confident, conversational, not stiff
-- Reads like Reza wrote it: precise, not flashy
-- Sign off as: Reza M. Asiyabi
+- Reads like a real person wrote it: precise, not flashy
+- Sign off with the candidate's full name as given in the profile
 
 Do NOT:
 - Use hollow phrases like "passionate about", "excited to leverage", "synergies"
@@ -693,7 +684,7 @@ Output ONLY the message text, ready to copy-paste."""
 
 def main():
     """Example usage of the Job Application Assistant."""
-    assistant = JobApplicationAssistant(cv_path="Reza_CV.pdf")
+    assistant = JobApplicationAssistant()
 
     job_description = """
     Machine Learning Engineer - Computer Vision

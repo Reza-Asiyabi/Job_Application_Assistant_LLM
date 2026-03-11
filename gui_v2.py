@@ -13,7 +13,10 @@ import os
 import json
 from datetime import datetime
 
+from dotenv import load_dotenv
 from job_application_assistant import JobApplicationAssistant
+
+load_dotenv()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Design tokens
@@ -75,7 +78,7 @@ class JobAssistantV2:
 
         # ── State ─────────────────────────────────────────────────────────
         self.assistant = None
-        self.cv_path       = tk.StringVar(value="reza_cv.pdf")
+        self.cv_path       = tk.StringVar(value=os.getenv("CV_PATH", "cv.pdf"))
         self.model_var     = tk.StringVar(value="gpt-4o")
         self.company_name  = tk.StringVar()
         self.role_title    = tk.StringVar()

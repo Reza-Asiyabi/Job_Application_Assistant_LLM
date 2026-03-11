@@ -6,6 +6,7 @@ Test script to verify the Job Application Assistant setup
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 
 def test_environment():
@@ -13,10 +14,13 @@ def test_environment():
     print("\n" + "="*70)
     print("TESTING ENVIRONMENT SETUP")
     print("="*70)
-    
+
+    load_dotenv()
+    cv_path = os.getenv("CV_PATH", "cv.pdf")
+
     tests_passed = 0
     tests_total = 0
-    
+
     # Test 1: Check Python version
     tests_total += 1
     print("\n1. Checking Python version...")
@@ -25,7 +29,7 @@ def test_environment():
         tests_passed += 1
     else:
         print(f"   ✗ Python {sys.version_info.major}.{sys.version_info.minor} (Need 3.8+)")
-    
+
     # Test 2: Check dependencies
     tests_total += 1
     print("\n2. Checking dependencies...")
@@ -38,7 +42,7 @@ def test_environment():
     except ImportError as e:
         print(f"   ✗ Missing dependency: {str(e)}")
         print("   → Run: pip install -r requirements.txt")
-    
+
     # Test 3: Check .env file
     tests_total += 1
     print("\n3. Checking .env file...")
@@ -48,14 +52,12 @@ def test_environment():
     else:
         print("   ✗ .env file not found")
         print("   → Copy .env.example to .env and add your API key")
-    
+
     # Test 4: Check API key
     tests_total += 1
     print("\n4. Checking OpenAI API key...")
-    from dotenv import load_dotenv
-    load_dotenv()
     api_key = os.getenv('OPENAI_API_KEY')
-    
+
     if api_key:
         if api_key.startswith('sk-'):
             print("   ✓ API key found and looks valid")
@@ -65,17 +67,18 @@ def test_environment():
     else:
         print("   ✗ OPENAI_API_KEY not found in .env")
         print("   → Add: OPENAI_API_KEY=sk-your-key-here")
-    
+
     # Test 5: Check CV file
     tests_total += 1
-    print("\n5. Checking for CV file...")
-    if Path('reza_cv.pdf').exists():
-        print("   ✓ reza_cv.pdf found")
+    print(f"\n5. Checking for CV file ({cv_path})...")
+    if Path(cv_path).exists():
+        print(f"   ✓ {cv_path} found")
         tests_passed += 1
     else:
-        print("   ✗ reza_cv.pdf not found")
-        print("   → Place your CV PDF as 'reza_cv.pdf' in this directory")
-    
+        print(f"   ✗ {cv_path} not found")
+        print(f"   → Place your CV PDF as '{cv_path}' in this directory")
+        print(f"   → Or set CV_PATH=your_cv.pdf in your .env file")
+
     # Test 6: Test OpenAI connection
     tests_total += 1
     print("\n6. Testing OpenAI API connection...")
@@ -83,7 +86,6 @@ def test_environment():
         try:
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
-            # Simple test call
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": "Say 'OK' if you can read this"}],
@@ -96,19 +98,19 @@ def test_environment():
             print("   → Check your API key and internet connection")
     else:
         print("   ⊗ Skipped (no valid API key)")
-    
+
     # Test 7: Test PDF extraction
     tests_total += 1
     print("\n7. Testing PDF extraction...")
-    if Path('reza_cv.pdf').exists():
+    if Path(cv_path).exists():
         try:
             import PyPDF2
-            with open('reza_cv.pdf', 'rb') as f:
+            with open(cv_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text()
-                
+
                 if len(text) > 100:
                     print(f"   ✓ PDF readable ({len(text)} characters extracted)")
                     print(f"   Preview: {text[:100]}...")
@@ -119,12 +121,12 @@ def test_environment():
             print(f"   ✗ PDF extraction failed: {str(e)}")
     else:
         print("   ⊗ Skipped (no CV file)")
-    
+
     # Summary
     print("\n" + "="*70)
     print(f"SUMMARY: {tests_passed}/{tests_total} tests passed")
     print("="*70)
-    
+
     if tests_passed == tests_total:
         print("\n🎉 All tests passed! You're ready to use the assistant.")
         print("\nNext steps:")
@@ -136,7 +138,7 @@ def test_environment():
         print("\nQuick setup checklist:")
         print("  [ ] Install dependencies: pip install -r requirements.txt")
         print("  [ ] Create .env file with OPENAI_API_KEY")
-        print("  [ ] Place CV as reza_cv.pdf")
+        print(f"  [ ] Place CV as {cv_path} (or set CV_PATH in .env)")
         return False
 
 
@@ -148,9 +150,9 @@ def test_assistant():
     
     try:
         from job_application_assistant import JobApplicationAssistant
-        
+
         print("\nInitializing assistant...")
-        assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
+        assistant = JobApplicationAssistant()
         
         print("\nRunning test query...")
         test_job = """

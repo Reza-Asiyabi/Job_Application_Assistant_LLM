@@ -1,221 +1,163 @@
 #!/usr/bin/env python3
-"""
-Simple example demonstrating basic usage of the Job Application Assistant
-"""
+"""Usage examples for the Job Application Assistant."""
 
 from job_application_assistant import JobApplicationAssistant
 
+SAMPLE_JD = """
+Senior Machine Learning Engineer — Earth Observation
+London, UK
 
-def example_1_quick_evaluation():
-    """Example 1: Quick job fit evaluation"""
-    print("\n" + "="*70)
-    print("EXAMPLE 1: Quick Job Fit Evaluation")
-    print("="*70)
-    
-    # Initialize assistant
-    assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
-    
-    # Sample job description
-    job_description = """
-    Senior Machine Learning Engineer - Earth Observation
-    Location: London, UK
-    
-    We're building cutting-edge ML models for satellite imagery analysis.
-    
-    Requirements:
-    - PhD in Computer Science, Machine Learning, or related field
-    - Strong experience with PyTorch and deep learning
-    - Background in computer vision or remote sensing
-    - Experience with geospatial data processing
-    - Strong publication record preferred
-    
-    Responsibilities:
-    - Design and implement novel ML architectures for EO data
-    - Work with SAR and optical satellite imagery
-    - Collaborate with product teams on deployment
-    - Publish research findings
-    """
-    
-    # Get evaluation
-    result = assistant.evaluate_job_fit(job_description)
-    
-    print("\n" + result['evaluation'])
+We're building deep learning models for satellite imagery analysis.
+
+Requirements:
+- PhD in Computer Science, Machine Learning, or related field
+- Strong experience with PyTorch and deep learning
+- Background in computer vision or remote sensing
+- Experience with geospatial data (SAR, multispectral)
+- Strong publication record preferred
+
+Responsibilities:
+- Design and implement ML architectures for EO data
+- Collaborate with product teams on deployment
+- Publish research findings
+"""
+
+
+def example_1_evaluate():
+    """Example 1: Evaluate job fit."""
+    print("\n" + "="*60)
+    print("EXAMPLE 1: Job Fit Evaluation")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    result = assistant.evaluate_job_fit(SAMPLE_JD)
+    print(result["evaluation"])
     print(f"\nTokens used: {result['tokens_used']}")
 
 
 def example_2_cv_summary():
-    """Example 2: Generate tailored CV summary"""
-    print("\n" + "="*70)
-    print("EXAMPLE 2: Generate CV Summary")
-    print("="*70)
-    
-    assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
-    
-    job_description = """
-    Applied Research Scientist - Computer Vision
-    Tech Company, Cambridge UK
-    
-    Looking for a researcher with deep ML expertise to work on production CV systems.
-    Requirements: PhD, PyTorch, strong publication record, industry interest.
-    """
-    
-    result = assistant.generate_cv_summary(job_description)
-    
-    print("\nGenerated CV Summary:")
-    print("-" * 70)
-    print(result['summary'])
-    print("-" * 70)
+    """Example 2: Generate a tailored CV summary."""
+    print("\n" + "="*60)
+    print("EXAMPLE 2: CV Summary")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    result = assistant.generate_cv_summary(SAMPLE_JD)
+    print(result["summary"])
     print(f"\nTokens used: {result['tokens_used']}")
 
 
 def example_3_cover_letter():
-    """Example 3: Generate cover letter"""
-    print("\n" + "="*70)
-    print("EXAMPLE 3: Generate Cover Letter")
-    print("="*70)
-    
-    assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
-    
-    job_description = """
-    Machine Learning Engineer - Geospatial AI
-    SatelliteAI Inc., Remote (UK-based)
-    
-    We're revolutionizing Earth observation with deep learning.
-    
-    Requirements:
-    - Strong ML background (PhD preferred)
-    - Experience with PyTorch
-    - Knowledge of remote sensing or geospatial data
-    - Ability to work independently and in teams
-    
-    You'll be:
-    - Building ML models for satellite imagery
-    - Optimizing models for production
-    - Working with our science and engineering teams
-    """
-    
+    """Example 3: Generate a cover letter."""
+    print("\n" + "="*60)
+    print("EXAMPLE 3: Cover Letter")
+    print("="*60)
+    assistant = JobApplicationAssistant()
     result = assistant.generate_cover_letter(
-        job_description=job_description,
+        job_description=SAMPLE_JD,
         company_name="SatelliteAI Inc.",
-        role_title="Machine Learning Engineer - Geospatial AI"
+        role_title="Senior Machine Learning Engineer"
     )
-    
-    print("\nGenerated Cover Letter:")
-    print("-" * 70)
-    print(result['cover_letter'])
-    print("-" * 70)
+    print(result["cover_letter"])
     print(f"\nTokens used: {result['tokens_used']}")
 
 
-def example_4_complete_package():
-    """Example 4: Generate complete application package"""
-    print("\n" + "="*70)
-    print("EXAMPLE 4: Complete Application Package")
-    print("="*70)
-    
-    assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
-    
-    job_description = """
-    Senior ML Researcher
-    AI Research Lab, Edinburgh
-    
-    Join our team working on next-generation machine learning for Earth observation.
-    
-    Requirements:
-    - PhD in ML/CV/related field
-    - Publications in top-tier venues
-    - Strong PyTorch skills
-    - Experience with vision models
-    - Interest in geospatial applications
-    """
-    
-    # Generate everything
-    package = assistant.full_application_package(
-        job_description=job_description,
-        company_name="AI Research Lab",
-        role_title="Senior ML Researcher"
+def example_4_interview_prep():
+    """Example 4: Generate interview preparation materials."""
+    print("\n" + "="*60)
+    print("EXAMPLE 4: Interview Preparation")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    result = assistant.generate_interview_prep(SAMPLE_JD)
+    print(result["interview_prep"])
+    print(f"\nTokens used: {result['tokens_used']}")
+
+
+def example_5_linkedin_message():
+    """Example 5: Generate a LinkedIn outreach message."""
+    print("\n" + "="*60)
+    print("EXAMPLE 5: LinkedIn Message")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    result = assistant.generate_linkedin_message(
+        job_description=SAMPLE_JD,
+        recruiter_name="Sarah"
     )
-    
-    # Save to file
-    assistant.save_results(package, "example_complete_package.txt")
-    
-    print("\n✓ Complete package generated and saved to: example_complete_package.txt")
-    print(f"✓ Total tokens used: {package['total_tokens_used']}")
-    
-    # Print preview
-    print("\n" + "="*70)
-    print("PREVIEW - CV Summary")
-    print("="*70)
-    print(package['cv_summary'])
+    print(result["linkedin_message"])
+    print(f"\nTokens used: {result['tokens_used']}")
 
 
-def example_5_answer_question():
-    """Example 5: Answer application question"""
-    print("\n" + "="*70)
-    print("EXAMPLE 5: Answer Application Question")
-    print("="*70)
-    
-    assistant = JobApplicationAssistant(cv_path="reza_cv.pdf")
-    
-    job_description = """
-    Research Engineer - ML
-    Tech Company
-    Requirements: PhD, ML expertise, Python/PyTorch
-    """
-    
-    question = "Describe a challenging machine learning project you've worked on and how you approached it."
-    
+def example_6_answer_question():
+    """Example 6: Answer an application question."""
+    print("\n" + "="*60)
+    print("EXAMPLE 6: Application Question Answer")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    question = "Describe a challenging ML project you've worked on and how you approached it."
     result = assistant.answer_application_question(
-        job_description=job_description,
+        job_description=SAMPLE_JD,
         question=question
     )
-    
-    print(f"\nQuestion: {result['question']}")
-    print("\nAnswer:")
-    print("-" * 70)
-    print(result['answer'])
-    print("-" * 70)
+    print(f"Q: {result['question']}\n")
+    print(result["answer"])
     print(f"\nTokens used: {result['tokens_used']}")
+
+
+def example_7_complete_package():
+    """Example 7: Generate and save a complete application package."""
+    print("\n" + "="*60)
+    print("EXAMPLE 7: Complete Application Package")
+    print("="*60)
+    assistant = JobApplicationAssistant()
+    package = assistant.full_application_package(
+        job_description=SAMPLE_JD,
+        company_name="SatelliteAI Inc.",
+        role_title="Senior Machine Learning Engineer"
+    )
+    assistant.save_results(package, "example_output.txt")
+    print(f"Package saved to: example_output.txt")
+    print(f"Total tokens used: {package['total_tokens_used']}")
+    print("\n--- CV Summary Preview ---")
+    print(package["cv_summary"])
+
+
+EXAMPLES = [
+    ("Job Fit Evaluation",      example_1_evaluate),
+    ("CV Summary",              example_2_cv_summary),
+    ("Cover Letter",            example_3_cover_letter),
+    ("Interview Preparation",   example_4_interview_prep),
+    ("LinkedIn Message",        example_5_linkedin_message),
+    ("Answer Question",         example_6_answer_question),
+    ("Complete Package",        example_7_complete_package),
+]
 
 
 def main():
-    """Run all examples"""
-    print("\n" + "="*70)
-    print("  JOB APPLICATION ASSISTANT - USAGE EXAMPLES")
-    print("="*70)
-    
-    examples = [
-        ("Quick Evaluation", example_1_quick_evaluation),
-        ("CV Summary", example_2_cv_summary),
-        ("Cover Letter", example_3_cover_letter),
-        ("Complete Package", example_4_complete_package),
-        ("Answer Question", example_5_answer_question)
-    ]
-    
+    print("\n" + "="*60)
+    print("  JOB APPLICATION ASSISTANT — EXAMPLES")
+    print("="*60)
     print("\nAvailable examples:")
-    for i, (name, _) in enumerate(examples, 1):
-        print(f"{i}. {name}")
-    print("6. Run all examples")
-    print("7. Exit")
-    
-    choice = input("\nSelect example to run (1-7): ").strip()
-    
-    if choice == '7':
+    for i, (name, _) in enumerate(EXAMPLES, 1):
+        print(f"  {i}. {name}")
+    print(f"  {len(EXAMPLES)+1}. Run all")
+    print(f"  {len(EXAMPLES)+2}. Exit")
+
+    choice = input(f"\nSelect (1-{len(EXAMPLES)+2}): ").strip()
+
+    if choice == str(len(EXAMPLES)+2):
         return
-    elif choice == '6':
-        for name, func in examples:
+    elif choice == str(len(EXAMPLES)+1):
+        for name, func in EXAMPLES:
             try:
                 func()
-                input("\nPress Enter to continue to next example...")
+                input("\nPress Enter to continue...")
             except Exception as e:
-                print(f"\n❌ Error in {name}: {str(e)}")
-    elif choice in ['1', '2', '3', '4', '5']:
+                print(f"\nError in '{name}': {e}")
+    elif choice.isdigit() and 1 <= int(choice) <= len(EXAMPLES):
         try:
-            examples[int(choice)-1][1]()
+            EXAMPLES[int(choice)-1][1]()
         except Exception as e:
-            print(f"\n❌ Error: {str(e)}")
+            print(f"\nError: {e}")
     else:
-        print("\n❌ Invalid choice")
+        print("\nInvalid choice.")
 
 
 if __name__ == "__main__":
