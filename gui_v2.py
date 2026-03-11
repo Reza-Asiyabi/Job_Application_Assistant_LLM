@@ -317,7 +317,7 @@ class JobAssistantV2:
         model_row = tk.Frame(api_card, bg=C["surface"])
         model_row.pack(anchor="w", pady=(0, 12))
         self._model_btns = {}
-        for m in ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]:
+        for m in ["gpt-5.2", "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]:
             b = tk.Button(model_row, text=m, relief="flat", bd=0, cursor="hand2",
                           font=(FF, 9), bg=C["input_bg"], fg=C["text_dim"],
                           activebackground=C["accent_dim"], activeforeground=C["text"],
