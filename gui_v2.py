@@ -53,6 +53,7 @@ NAV_ITEMS = [
     ("#", "Package"),
     ("~", "Interview"),
     ("=", "History"),
+    ("@", "Profile"),
 ]
 
 STATUS_COLORS = {
@@ -93,6 +94,7 @@ class JobAssistantV2:
         self._build_header()
         self._build_body()
         self._build_statusbar()
+        self._setup_keyboard_shortcuts()
         self._nav_to("Setup")
         self.root.after(400, self._auto_init)
 
@@ -126,6 +128,7 @@ class JobAssistantV2:
             "Package":   self._page_package(self.content),
             "Interview": self._page_interview(self.content),
             "History":   self._page_history(self.content),
+            "Profile":   self._page_profile(self.content),
         }
         # Mapping of page names to their JD text widgets (for shared JD sync)
         self._jd_widgets = {
@@ -163,6 +166,49 @@ class JobAssistantV2:
         self._token_lbl = tk.Label(bar, text="Session tokens: 0  |  Est. cost: $0.000",
                                    font=(FF, 9), bg=C["surface3"], fg=C["text_dim"], anchor="e")
         self._token_lbl.pack(side="right", padx=14)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Keyboard shortcuts
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _setup_keyboard_shortcuts(self):
+        """Register global keyboard shortcuts (safe to call after _build_body)."""
+        self.root.bind_all("<Control-Return>", lambda e: self._on_ctrl_enter())
+        self.root.bind_all("<Control-s>",      lambda e: self._on_ctrl_s())
+        for i, (_, name) in enumerate(NAV_ITEMS, 1):
+            self.root.bind_all(f"<Control-Key-{i}>", lambda e, n=name: self._nav_to(n))
+
+    def _on_ctrl_enter(self):
+        """Trigger the primary action for the current page."""
+        actions = {
+            "Setup":     self._initialize_assistant,
+            "Evaluate":  self._evaluate_job_fit,
+            "Generate":  self._generate_cv_summary,
+            "Q & A":     self._answer_question,
+            "Package":   self._generate_package,
+            "Interview": self._generate_interview_prep,
+            "Profile":   self._save_profile,
+        }
+        action = actions.get(self._current_page)
+        if action:
+            action()
+
+    def _on_ctrl_s(self):
+        """Save the output widget on the current page."""
+        if self._current_page == "Profile":
+            self._save_profile()
+            return
+        output_map = {
+            "Evaluate":  self.eval_results,
+            "Generate":  self.gen_output,
+            "Q & A":     self.qa_output,
+            "Package":   self.pkg_output,
+            "Interview": self.interview_output,
+            "History":   self.hist_content,
+        }
+        widget = output_map.get(self._current_page)
+        if widget:
+            self._save_text(widget)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Navigation (with shared JD sync)
@@ -282,6 +328,23 @@ class JobAssistantV2:
         self._btn(ext_row, "Auto-extract from JD", self._auto_extract_job_details, style="ghost").pack(side="left")
         return opt_outer
 
+    def _word_count_label(self, parent, widget):
+        """Return a live word/char count label wired to `widget`."""
+        lbl = tk.Label(parent, text="0 words · 0 chars",
+                       font=(FF, 8), bg=C["bg"], fg=C["text_muted"])
+        widget._count_label = lbl
+        return lbl
+
+    def _update_count(self, widget):
+        """Refresh the count label attached to `widget` (no-op if none attached)."""
+        lbl = getattr(widget, "_count_label", None)
+        if lbl is None:
+            return
+        content = widget.get(1.0, "end-1c")
+        words = len(content.split()) if content.strip() else 0
+        chars = len(content.strip())
+        lbl.configure(text=f"{words:,} words · {chars:,} chars")
+
     def _eval_context_label(self, parent):
         """A small label showing whether evaluation context is available."""
         lbl = tk.Label(parent, text="", font=(FF, 8), bg=C["bg"])
@@ -354,12 +417,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "Evaluate Fit",
                              "Paste a job description and get a strategic analysis").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left
-        left = tk.Frame(split, bg=C["bg"])
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=300, stretch="always")
         self._lbl(left, "JOB DESCRIPTION", dim=True).pack(anchor="w", pady=(0, 4))
         self.eval_job_text, _ = self._inset_area(left, height=22)
         self.eval_job_text._container.pack(fill="both", expand=True)
@@ -370,14 +434,15 @@ class JobAssistantV2:
         self._btn(lb, "Clear",           lambda: self.eval_job_text.delete(1.0, "end"),  style="ghost").pack(side="left")
 
         # Right
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._lbl(right, "EVALUATION RESULTS", dim=True).pack(anchor="w", pady=(0, 4))
         self.eval_results, _ = self._inset_area(right, height=22)
         self.eval_results.configure(state="disabled")
         self.eval_results._container.pack(fill="both", expand=True)
+        self._word_count_label(right, self.eval_results).pack(anchor="e", pady=(3, 0))
         rb = tk.Frame(right, bg=C["bg"])
-        rb.pack(fill="x", pady=(10, 0))
+        rb.pack(fill="x", pady=(4, 0))
         self._btn(rb, "Save", lambda: self._save_text(self.eval_results), style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Copy", lambda: self._copy_text(self.eval_results), style="secondary").pack(side="left")
         return page
@@ -388,12 +453,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "Generate Materials",
                              "CV summaries, cover letters, and LinkedIn messages").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left
-        left = tk.Frame(split, bg=C["bg"])
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=300, stretch="always")
         self._lbl(left, "JOB DESCRIPTION", dim=True).pack(anchor="w", pady=(0, 4))
         self.gen_job_text, _ = self._inset_area(left, height=14)
         self.gen_job_text._container.pack(fill="both", expand=True)
@@ -409,14 +475,15 @@ class JobAssistantV2:
         self._btn(lb, "Paste Clipboard", lambda: self._paste_to(self.gen_job_text), style="ghost").pack(side="left")
 
         # Right
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._lbl(right, "GENERATED CONTENT", dim=True).pack(anchor="w", pady=(0, 4))
         self.gen_output, _ = self._inset_area(right, height=24)
         self.gen_output.configure(state="disabled")
         self.gen_output._container.pack(fill="both", expand=True)
+        self._word_count_label(right, self.gen_output).pack(anchor="e", pady=(3, 0))
         rb = tk.Frame(right, bg=C["bg"])
-        rb.pack(fill="x", pady=(10, 0))
+        rb.pack(fill="x", pady=(4, 0))
         self._btn(rb, "Save",  lambda: self._save_text(self.gen_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Copy",  lambda: self._copy_text(self.gen_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Clear", lambda: self._clear_text(self.gen_output), style="ghost").pack(side="left")
@@ -428,12 +495,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "Application Q & A",
                              "Ask specific questions about the job or your application strategy").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left
-        left = tk.Frame(split, bg=C["bg"])
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=300, stretch="always")
         self._lbl(left, "JOB DESCRIPTION", dim=True).pack(anchor="w", pady=(0, 4))
         self.qa_job_text, _ = self._inset_area(left, height=13)
         self.qa_job_text._container.pack(fill="both", expand=True)
@@ -446,14 +514,15 @@ class JobAssistantV2:
         self._btn(lb, "Paste Clipboard",  lambda: self._paste_to(self.qa_job_text),  style="ghost").pack(side="left")
 
         # Right
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._lbl(right, "AI ANSWER", dim=True).pack(anchor="w", pady=(0, 4))
         self.qa_output, _ = self._inset_area(right, height=24)
         self.qa_output.configure(state="disabled")
         self.qa_output._container.pack(fill="both", expand=True)
+        self._word_count_label(right, self.qa_output).pack(anchor="e", pady=(3, 0))
         rb = tk.Frame(right, bg=C["bg"])
-        rb.pack(fill="x", pady=(10, 0))
+        rb.pack(fill="x", pady=(4, 0))
         self._btn(rb, "Save",  lambda: self._save_text(self.qa_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Copy",  lambda: self._copy_text(self.qa_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Clear", lambda: self._clear_text(self.qa_output), style="ghost").pack(side="left")
@@ -465,12 +534,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "Complete Package",
                              "Evaluation + CV summary + cover letter — all streamed in sequence").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left
-        left = tk.Frame(split, bg=C["bg"])
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=300, stretch="always")
         self._lbl(left, "JOB DESCRIPTION", dim=True).pack(anchor="w", pady=(0, 4))
         self.pkg_job_text, _ = self._inset_area(left, height=13)
         self.pkg_job_text._container.pack(fill="both", expand=True)
@@ -483,14 +553,15 @@ class JobAssistantV2:
         self._progress_lbl.pack(anchor="w", pady=(8, 0))
 
         # Right
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._lbl(right, "GENERATED PACKAGE", dim=True).pack(anchor="w", pady=(0, 4))
         self.pkg_output, _ = self._inset_area(right, height=24)
         self.pkg_output.configure(state="disabled")
         self.pkg_output._container.pack(fill="both", expand=True)
+        self._word_count_label(right, self.pkg_output).pack(anchor="e", pady=(3, 0))
         rb = tk.Frame(right, bg=C["bg"])
-        rb.pack(fill="x", pady=(10, 0))
+        rb.pack(fill="x", pady=(4, 0))
         self._btn(rb, "Save Package", lambda: self._save_text(self.pkg_output), style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Copy All",     lambda: self._copy_text(self.pkg_output), style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Clear",        lambda: self._clear_text(self.pkg_output), style="ghost").pack(side="left")
@@ -502,12 +573,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "Interview Prep",
                              "Technical questions, STAR stories, and smart questions to ask").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left
-        left = tk.Frame(split, bg=C["bg"])
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=300, stretch="always")
         self._lbl(left, "JOB DESCRIPTION", dim=True).pack(anchor="w", pady=(0, 4))
         self.interview_job_text, _ = self._inset_area(left, height=22)
         self.interview_job_text._container.pack(fill="both", expand=True)
@@ -521,14 +593,15 @@ class JobAssistantV2:
         self._btn(lb, "Clear",                    lambda: self.interview_job_text.delete(1.0, "end"), style="ghost").pack(side="left")
 
         # Right
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._lbl(right, "INTERVIEW PREPARATION", dim=True).pack(anchor="w", pady=(0, 4))
         self.interview_output, _ = self._inset_area(right, height=22)
         self.interview_output.configure(state="disabled")
         self.interview_output._container.pack(fill="both", expand=True)
+        self._word_count_label(right, self.interview_output).pack(anchor="e", pady=(3, 0))
         rb = tk.Frame(right, bg=C["bg"])
-        rb.pack(fill="x", pady=(10, 0))
+        rb.pack(fill="x", pady=(4, 0))
         self._btn(rb, "Save",  lambda: self._save_text(self.interview_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Copy",  lambda: self._copy_text(self.interview_output),  style="secondary").pack(side="left", padx=(0, 8))
         self._btn(rb, "Clear", lambda: self._clear_text(self.interview_output), style="ghost").pack(side="left")
@@ -540,13 +613,13 @@ class JobAssistantV2:
         inner.pack(fill="both", expand=True, padx=36, pady=28)
         self._section_header(inner, "History",
                              "All generated results — auto-saved with pipeline status tracking").pack(fill="x", pady=(0, 20))
-        split = tk.Frame(inner, bg=C["bg"])
-        split.pack(fill="both", expand=True)
+        pane = tk.PanedWindow(inner, orient=tk.HORIZONTAL, bg=C["border"],
+                              sashwidth=5, sashrelief="flat", bd=0, relief="flat")
+        pane.pack(fill="both", expand=True)
 
         # Left — entry list
-        left = tk.Frame(split, bg=C["bg"], width=310)
-        left.pack(side="left", fill="y", padx=(0, 10))
-        left.pack_propagate(False)
+        left = tk.Frame(pane, bg=C["bg"])
+        pane.add(left, minsize=200, width=310, stretch="never")
         self._lbl(left, "ENTRIES", dim=True).pack(anchor="w", pady=(0, 4))
         list_border = tk.Frame(left, bg=C["border"], padx=1, pady=1)
         list_border.pack(fill="both", expand=True)
@@ -569,8 +642,8 @@ class JobAssistantV2:
         self._btn(hb, "Clear All",       self._clear_history,     style="ghost").pack(side="left")
 
         # Right — content viewer
-        right = tk.Frame(split, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right = tk.Frame(pane, bg=C["bg"])
+        pane.add(right, minsize=300, stretch="always")
         self._hist_meta = tk.Label(right, text="Select an entry to view its content",
                                    font=(FF, 9), bg=C["bg"], fg=C["text_dim"], anchor="w")
         self._hist_meta.pack(anchor="w", pady=(0, 4))
@@ -596,6 +669,44 @@ class JobAssistantV2:
         self._refresh_hist_list()
         return page
 
+    def _page_profile(self, parent):
+        page  = tk.Frame(parent, bg=C["bg"])
+        inner = tk.Frame(page, bg=C["bg"])
+        inner.pack(fill="both", expand=True, padx=36, pady=28)
+        self._section_header(inner, "Profile Editor",
+                             "Edit profile.md — the AI's system prompt — without leaving the app").pack(fill="x", pady=(0, 16))
+
+        # Info banner
+        info_outer, info_card = self._card(inner, padx=14, pady=10)
+        info_outer.pack(fill="x", pady=(0, 14))
+        self._lbl(info_card,
+                  "profile.md is sent to the AI on every request. "
+                  "Fill in your name, skills, career goals, salary expectations and key projects. "
+                  "Save to apply changes immediately.",
+                  bg=C["surface"], size=9).pack(anchor="w")
+
+        # Editor
+        editor_border = tk.Frame(inner, bg=C["border"], padx=1, pady=1)
+        editor_border.pack(fill="both", expand=True)
+        editor_inner = tk.Frame(editor_border, bg=C["input_bg"])
+        editor_inner.pack(fill="both", expand=True)
+        self.profile_editor, prof_sb = self._textarea(editor_inner, height=30, mono=True)
+        self.profile_editor.pack(side="left", fill="both", expand=True)
+        prof_sb.pack(side="left", fill="y")
+
+        # Load current content (status label not yet created — guarded inside method)
+        self._load_profile_editor()
+
+        # Buttons + status
+        btn_row = tk.Frame(inner, bg=C["bg"])
+        btn_row.pack(fill="x", pady=(12, 0))
+        self._btn(btn_row, "Save Profile",      self._save_profile,         style="primary").pack(side="left", padx=(0, 8))
+        self._btn(btn_row, "Reload from Disk",  self._load_profile_editor,  style="secondary").pack(side="left")
+        self._profile_status = tk.Label(btn_row, text="", font=(FF, 9),
+                                        bg=C["bg"], fg=C["text_muted"])
+        self._profile_status.pack(side="right")
+        return page
+
     # ═════════════════════════════════════════════════════════════════════════
     # Streaming helpers
     # ═════════════════════════════════════════════════════════════════════════
@@ -611,6 +722,7 @@ class JobAssistantV2:
         if prefix:
             widget.insert("end", prefix)
         widget.configure(state="disabled")
+        self._update_count(widget)
 
         def _callback(chunk):
             def _do():
@@ -618,6 +730,7 @@ class JobAssistantV2:
                 widget.insert("end", chunk)
                 widget.see("end")
                 widget.configure(state="disabled")
+                self._update_count(widget)
             self.root.after(0, _do)
 
         return _callback
@@ -629,6 +742,7 @@ class JobAssistantV2:
             widget.insert("end", text)
             widget.see("end")
             widget.configure(state="disabled")
+            self._update_count(widget)
         self.root.after(0, _do)
 
     def _make_append_callback(self, widget):
@@ -639,6 +753,7 @@ class JobAssistantV2:
                 widget.insert("end", chunk)
                 widget.see("end")
                 widget.configure(state="disabled")
+                self._update_count(widget)
             self.root.after(0, _do)
         return _callback
 
@@ -1022,6 +1137,44 @@ class JobAssistantV2:
 
         threading.Thread(target=_do, daemon=True).start()
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Profile editor actions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _load_profile_editor(self):
+        """Load profile.md content into the editor widget."""
+        profile_path = Path(__file__).parent / "profile.md"
+        try:
+            content = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
+        except Exception as e:
+            content = f"# Error reading profile.md\n# {e}"
+        self.profile_editor.delete(1.0, "end")
+        self.profile_editor.insert(1.0, content)
+        # _profile_status may not exist yet during page construction
+        if hasattr(self, "_profile_status"):
+            self._profile_status.configure(
+                text=f"Loaded  {datetime.now().strftime('%H:%M:%S')}",
+                fg=C["text_muted"])
+
+    def _save_profile(self):
+        """Write editor content to profile.md and re-initialize the assistant."""
+        profile_path = Path(__file__).parent / "profile.md"
+        content = self.profile_editor.get(1.0, "end-1c")
+        if not content.strip():
+            messagebox.showwarning("Empty Profile",
+                                   "The profile editor is empty.\nNothing was saved.")
+            return
+        try:
+            profile_path.write_text(content, encoding="utf-8")
+            self._profile_status.configure(
+                text=f"Saved  {datetime.now().strftime('%H:%M:%S')}",
+                fg=C["success"])
+            self._set_status("Profile saved")
+            if self.assistant:
+                self._initialize_assistant(silent=True)
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not save profile.md:\n{e}")
+
     # ═════════════════════════════════════════════════════════════════════════
     # History management
     # ═════════════════════════════════════════════════════════════════════════
@@ -1152,6 +1305,7 @@ class JobAssistantV2:
             widget.delete(1.0, "end")
             widget.insert("end", text)
             widget.configure(state="disabled")
+            self._update_count(widget)
         self.root.after(0, _do)
 
     def _paste_to(self, widget):
@@ -1193,6 +1347,7 @@ class JobAssistantV2:
         widget.configure(state="normal")
         widget.delete(1.0, "end")
         widget.configure(state="disabled")
+        self._update_count(widget)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
