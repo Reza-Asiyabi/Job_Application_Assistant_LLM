@@ -14,23 +14,52 @@ from dotenv import load_dotenv
 import PyPDF2
 
 
+def _format_ollama_size(bytes_: int) -> str:
+    """Human-readable file size for Ollama model display."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if bytes_ < 1024:
+            return f"{bytes_:.1f} {unit}"
+        bytes_ /= 1024
+    return f"{bytes_:.1f} TB"
+
+
 class JobApplicationAssistant:
     """
     An AI assistant for evaluating job fit and generating application materials.
-    Uses OpenAI API with a personal profile (profile.md) and CV analysis.
+    Supports OpenAI API and local Ollama models.
     """
 
-    def __init__(self, cv_path: str = None):
+    def __init__(self, cv_path: str = None, provider: str = "openai",
+                 api_key: str = None, base_url: str = None):
+        """
+        Args:
+            cv_path:   Path to the CV PDF file.
+            provider:  "openai" (default) or "ollama" (local, no API key needed).
+            api_key:   OpenAI API key. If None, read from OPENAI_API_KEY env var.
+                       Ignored when provider="ollama".
+            base_url:  Override the API base URL. For Ollama, pass
+                       "http://localhost:11434/v1" (or your custom host).
+        """
         load_dotenv()
+        self.provider = provider
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in .env file")
+        if provider == "ollama":
+            actual_base_url = base_url or "http://localhost:11434/v1"
+            actual_api_key  = "ollama"   # OpenAI SDK requires a non-empty value
+        else:
+            actual_base_url = base_url or os.getenv("OPENAI_BASE_URL")
+            actual_api_key  = api_key  or os.getenv("OPENAI_API_KEY")
+            if not actual_api_key:
+                raise ValueError("OPENAI_API_KEY not found in environment")
 
         if cv_path is None:
             cv_path = os.getenv("CV_PATH", "cv.pdf")
 
-        self.client = OpenAI(api_key=api_key)
+        client_kwargs: dict = {"api_key": actual_api_key}
+        if actual_base_url:
+            client_kwargs["base_url"] = actual_base_url
+
+        self.client = OpenAI(**client_kwargs)
         self.cv_text = self._extract_cv_text(cv_path)
         self.system_prompt = self._load_system_prompt()
         self.user_name = self._extract_user_name()
@@ -39,8 +68,55 @@ class JobApplicationAssistant:
         # can use it as context without requiring manual re-entry.
         self._last_evaluation: str | None = None
 
-        print("  Job Application Assistant initialized successfully")
+        print(f"  Job Application Assistant initialized ({provider})")
         print(f"  CV loaded: {len(self.cv_text)} characters")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Ollama helpers (classmethods — usable before instantiation)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def check_ollama_connection(base_url: str = "http://localhost:11434") -> tuple[bool, str]:
+        """Ping the Ollama server. Returns (is_running, error_message)."""
+        try:
+            import requests as _req
+            r = _req.get(f"{base_url}/api/tags", timeout=3)
+            r.raise_for_status()
+            return True, ""
+        except Exception as exc:
+            msg = str(exc)
+            if "Connection refused" in msg or "ConnectionError" in type(exc).__name__:
+                return False, (
+                    "Cannot connect to Ollama.\n\n"
+                    "Make sure Ollama is running:\n"
+                    "  ollama serve\n\n"
+                    "If you haven't installed it yet:\n"
+                    "  https://ollama.com"
+                )
+            return False, f"Ollama connection error: {msg}"
+
+    @staticmethod
+    def list_ollama_models(base_url: str = "http://localhost:11434") -> list[dict]:
+        """
+        Return installed Ollama models as a list of dicts:
+        {"name": str, "size": str, "modified": str}
+        Returns [] on any error.
+        """
+        try:
+            import requests as _req
+            r = _req.get(f"{base_url}/api/tags", timeout=5)
+            r.raise_for_status()
+            models = r.json().get("models", [])
+            return [
+                {
+                    "name":     m["name"],
+                    "size":     _format_ollama_size(m.get("size", 0)),
+                    "modified": m.get("modified_at", "")[:10],
+                }
+                for m in models
+            ]
+        except Exception:
+            return []
 
     # ─────────────────────────────────────────────────────────────────────────
     # Initialization helpers
@@ -60,16 +136,51 @@ class JobApplicationAssistant:
             raise Exception(f"Error reading PDF: {e}")
 
     def _load_system_prompt(self) -> str:
-        """Load from profile.md if present, otherwise use built-in prompt."""
-        profile_path = Path(__file__).parent / "profile.md"
-        if profile_path.exists():
+        """Load system prompt from profile files.
+
+        Priority:
+        1. Both profile_instructions.md + profile_personal.md exist  -> combine them
+        2. Only profile_personal.md exists                            -> use personal text (with note)
+        3. Neither exists but profile.md exists                       -> legacy fallback
+        4. Nothing found                                              -> built-in prompt
+        """
+        base = Path(__file__).parent
+        instr_path    = base / "profile_instructions.md"
+        personal_path = base / "profile_personal.md"
+        legacy_path   = base / "profile.md"
+
+        has_instr    = instr_path.exists()
+        has_personal = personal_path.exists()
+
+        if has_instr and has_personal:
             try:
-                text = profile_path.read_text(encoding="utf-8").strip()
+                instr_text    = instr_path.read_text(encoding="utf-8").strip()
+                personal_text = personal_path.read_text(encoding="utf-8").strip()
+                combined = instr_text + "\n\n" + personal_text
+                print(f"  Profile loaded from profile_instructions.md + profile_personal.md "
+                      f"({len(combined):,} characters)")
+                return combined
+            except Exception as e:
+                print(f"  Warning: could not read split profile files ({e}), trying fallback")
+
+        if has_personal:
+            try:
+                personal_text = personal_path.read_text(encoding="utf-8").strip()
+                if personal_text:
+                    print(f"  Profile loaded from profile_personal.md only ({len(personal_text):,} characters)")
+                    return personal_text
+            except Exception as e:
+                print(f"  Warning: could not read profile_personal.md ({e}), trying fallback")
+
+        if legacy_path.exists():
+            try:
+                text = legacy_path.read_text(encoding="utf-8").strip()
                 if text:
-                    print(f"  Profile loaded from profile.md ({len(text):,} characters)")
+                    print(f"  Profile loaded from profile.md (legacy) ({len(text):,} characters)")
                     return text
             except Exception as e:
                 print(f"  Warning: could not read profile.md ({e}), using built-in prompt")
+
         print("  Profile loaded from built-in prompt")
         return self._builtin_system_prompt()
 
@@ -123,10 +234,13 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
                 messages=messages,
                 temperature=temperature,
             )
-            return {
-                "content":     response.choices[0].message.content,
-                "tokens_used": response.usage.total_tokens,
-            }
+            content = response.choices[0].message.content or ""
+            # Ollama may not return usage — estimate from content length
+            try:
+                tokens_used = response.usage.total_tokens
+            except (AttributeError, TypeError):
+                tokens_used = len(content) // 4
+            return {"content": content, "tokens_used": tokens_used}
 
         # Streaming path
         create_kwargs = dict(
@@ -135,25 +249,41 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             temperature=temperature,
             stream=True,
         )
-        try:
-            create_kwargs["stream_options"] = {"include_usage": True}
-            stream = self.client.chat.completions.create(**create_kwargs)
-        except TypeError:
-            # Older SDK version without stream_options support
-            del create_kwargs["stream_options"]
+        # stream_options is an OpenAI extension — Ollama ignores it gracefully
+        # but some older SDK versions raise TypeError, so we handle that too
+        if self.provider != "ollama":
+            try:
+                create_kwargs["stream_options"] = {"include_usage": True}
+                stream = self.client.chat.completions.create(**create_kwargs)
+            except TypeError:
+                del create_kwargs["stream_options"]
+                stream = self.client.chat.completions.create(**create_kwargs)
+        else:
             stream = self.client.chat.completions.create(**create_kwargs)
 
         collected = []
         tokens_used = 0
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                delta = chunk.choices[0].delta.content
-                collected.append(delta)
-                stream_callback(delta)
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                tokens_used = chunk.usage.total_tokens
+        try:
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    delta = chunk.choices[0].delta.content
+                    collected.append(delta)
+                    stream_callback(delta)
+                try:
+                    if chunk.usage is not None:
+                        tokens_used = chunk.usage.total_tokens
+                except AttributeError:
+                    pass  # Ollama does not always include usage in stream chunks
+        except Exception as stream_err:
+            error_msg = f"\n\n[Stream interrupted: {stream_err}]"
+            stream_callback(error_msg)
+            collected.append(error_msg)
 
-        return {"content": "".join(collected), "tokens_used": tokens_used}
+        content = "".join(collected)
+        # Fall back to character estimate if Ollama didn't report token count
+        if tokens_used == 0 and content:
+            tokens_used = len(content) // 4
+        return {"content": content, "tokens_used": tokens_used}
 
     # ─────────────────────────────────────────────────────────────────────────
     # CV context builder
@@ -194,32 +324,43 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
 
 ---
 
-Provide a comprehensive job fit evaluation with this structure:
+Provide a comprehensive, honest job fit evaluation. Structure it exactly as follows:
 
-1. **FIT ASSESSMENT**: Strong fit / Partial fit / Weak fit (with clear reasoning)
+1. FIT ASSESSMENT
+State: Strong fit / Partial fit / Weak fit.
+Then in 2-3 sentences: why. Be direct. No hedging.
 
-2. **MATCH ANALYSIS**:
-   - Core strengths that align
-   - Relevant experience from CV
-   - Unique advantages the candidate brings
+2. MATCH ANALYSIS
+- Core strengths that directly align with this role's requirements (cite specific CV evidence)
+- Unique advantages this candidate brings that the JD may not have explicitly asked for but will value
+- Read the JD carefully: some "preferred" requirements are disguised must-haves. Flag those.
 
-3. **GAPS AND RISKS**:
-   - Missing skills or experience
-   - Potential concerns from employer perspective
-   - Any red flags
+3. GAPS AND RISKS
+- Missing or under-represented skills/experience — be specific, name them
+- Concerns from the employer's perspective (e.g. seniority mismatch, industry gap, missing credentials)
+- Any genuine red flags. If none, say so.
 
-4. **SALARY ESTIMATE**:
-   - Expected salary range for the candidate in this role
-   - Reasoning: company stage, location, seniority signals, role type
+4. COMPANY AND ROLE CONTEXT
+- What does this company/team likely care about most? What does "great" look like in this role?
+- Stage of company (startup / scale-up / enterprise) and what that means for the candidate
+- Any signals in the JD about culture, pace, technical depth expectations
 
-5. **STRATEGIC POSITIONING**:
-   - Which archetype to use: Research Scientist / Applied ML Engineer / Geospatial AI / Hybrid
-   - What to emphasize in the application
-   - What to downplay or reframe
+5. SALARY ESTIMATE
+- Expected salary range for this candidate in this role
+- Justify the range: company stage, location premium, role seniority, specialisation signals
+- Flag clearly if the role appears to be underpaying for the candidate's level
 
-6. **APPLICATION RECOMMENDATION**: Yes / Conditional / No — with clear reasoning.
+6. STRATEGIC POSITIONING
+- Which role archetype best fits (derive this from the profile's Section 4 archetypes)
+- Exactly what to emphasize in the application — specific skills, specific projects
+- What to downplay or reframe — be tactical, not evasive
+- One sentence: the single strongest angle for this application
 
-Be honest, strategic, and specific. Reference actual CV details where relevant."""
+7. APPLICATION RECOMMENDATION
+Yes / Conditional / No — followed by clear reasoning.
+If Conditional: state exactly what conditions would change the answer.
+
+Be honest. Be specific. Reference actual CV details throughout. A candidate reading this should come away knowing exactly what to do."""
 
         result = self._call_api(
             messages=[
@@ -227,6 +368,7 @@ Be honest, strategic, and specific. Reference actual CV details where relevant."
                 {"role": "user",   "content": user_prompt},
             ],
             model=model,
+            temperature=0.3,
             stream_callback=stream_callback,
         )
         self._last_evaluation = result["content"]
@@ -269,22 +411,27 @@ Be honest, strategic, and specific. Reference actual CV details where relevant."
 
 ---
 
-Write a compelling CV summary tailored for this specific role. Follow these examples:
+Write a CV/profile summary for this candidate, tailored specifically to this role.
 
-Example 1:
-"ML researcher transitioning from applied AI to AI safety and alignment research. Proven track record designing interpretable, robust deep learning architectures across projects with the European Space Agency, Stanford and Edinburgh Universities, and the UK National Centre for Earth Observation (NCEO). Expertise in building interpretable neural networks, investigating adversarial robustness, and developing domain-constrained models that maintain reliability under distribution shift. Experienced in end-to-end empirical ML research using PyTorch, from architecture design through experimental workflows to publication. Demonstrated ability to rapidly adapt to new research domains, implement ideas quickly, and communicate complex technical concepts clearly across interdisciplinary teams."
+STYLE REFERENCE — these examples show the correct LENGTH and TONE. Do not copy the content; adapt the approach to this candidate's actual background:
 
-Example 2:
-"Geospatial ML/AI engineer with strong experience building and operating geospatial data products from multi-source Earth Observation data, including SAR, multispectral, hyperspectral, and LiDAR. I design end-to-end workflows spanning data ingestion, preprocessing, feature extraction, ML-based analysis, and publication to production-ready geospatial services. Delivered operational solutions across projects with the European Space Agency (ESA), Stanford and Edinburgh Universities, and the UK National Centre for Earth Observation (NCEO). My work focuses on reliable, well-documented, and scalable geospatial pipelines using Python, EO/GIS tools and cloud-based infrastructure, translating complex satellite data into clear maps, dashboards, and decision-ready analytics."
+Example A (research-to-industry transition framing):
+"ML researcher transitioning into AI safety and alignment research. Proven track record designing interpretable deep learning architectures across high-impact projects. Expertise in building models that maintain reliability under distribution shift, grounded in end-to-end empirical research from architecture design through publication. Rapid adapter to new research domains with a record of clear cross-disciplinary communication."
 
-Example 3:
-"Applied ML/AI Scientist with extensive experience developing interpretable, scalable, and domain-aware deep learning systems. Experienced in transforming research innovations into deployable AI solutions across high-impact projects with the European Space Agency, Stanford University, and the University of Edinburgh. Skilled in PyTorch with expertise spanning physics-informed learning, LLMs, and multimodal model design. Hands-on experience applying deep learning to complex, high-dimensional data and building robust, production-ready models. Adapt quickly to new technical environments and enjoy collaborating closely with product and engineering teams to translate business requirements into deployable ML solutions."
+Example B (engineering/product framing):
+"ML engineer with a strong record building and shipping production geospatial data pipelines from multi-source Earth Observation data. Delivered operational solutions across projects spanning government agencies, universities, and national research bodies. Work focuses on reliable, scalable pipelines that translate complex satellite data into decision-ready analytics — from data ingestion through cloud deployment."
 
-Requirements:
-- 3-5 natural, flowing sentences — similar length to the examples
-- Use the evaluation to decide what to emphasize and what to downplay for THIS role
-- No generic buzzwords, no hollow AI phrases
-- Must sound human: sharp, precise, confident — reflect the candidate's actual voice"""
+Example C (applied scientist framing):
+"Applied ML Scientist with deep experience developing domain-aware, deployable deep learning systems. Track record taking research innovations to production in collaboration with engineering and product teams. Broad technical range across physics-informed learning, LLMs, and multimodal models, with hands-on delivery on high-stakes projects."
+
+REQUIREMENTS:
+- 3-5 sentences. Natural flow — not a bulleted list in prose form.
+- First sentence: immediately establish WHAT the candidate does + at what level. Specific > generic.
+- If the CV contains quantifiable achievements relevant to this role, include one.
+- Use the evaluation context to choose what to foreground for THIS specific role.
+- Consistent first-person voice (implied "I" or explicit) — do not mix.
+- No banned language. No hollow adjectives. No AI-isms.
+- Output ONLY the summary text — no header, no explanation."""
 
         result = self._call_api(
             messages=[
@@ -292,6 +439,7 @@ Requirements:
                 {"role": "user",   "content": user_prompt},
             ],
             model=model,
+            temperature=0.5,
             stream_callback=stream_callback,
         )
         return {
@@ -300,8 +448,31 @@ Requirements:
             "tokens_used": result["tokens_used"],
         }
 
+    # Tone framing instructions for cover letter variations
+    _COVER_LETTER_TONES = {
+        "hybrid": (
+            "Use a BALANCED / HYBRID framing — weigh research depth and engineering impact equally. "
+            "Neither the academic angle nor the production angle should dominate."
+        ),
+        "research": (
+            "Use a RESEARCH-LED framing:\n"
+            "- Open by foregrounding publications, domain expertise, or methodological depth as the key differentiator\n"
+            "- Emphasise intellectual contribution, novel approaches, and academic credibility\n"
+            "- Frame projects in terms of research impact, not just delivery\n"
+            "- Tone: peer-to-peer scientific — confident about research contributions, not apologetic about academia"
+        ),
+        "engineering": (
+            "Use an ENGINEERING-LED framing:\n"
+            "- Open by foregrounding shipped systems, production deployments, or quantified engineering outcomes\n"
+            "- Emphasise scale, reliability, performance, and practical delivery speed\n"
+            "- Frame projects in terms of systems built, problems solved at scale, and measurable business results\n"
+            "- Tone: engineering-first — results over methods, action-oriented, production-ready"
+        ),
+    }
+
     def generate_cover_letter(self, job_description: str, fit_evaluation: str = None,
                                company_name: str = None, role_title: str = None,
+                               tone: str = "hybrid",
                                model: str = "gpt-4o", stream_callback=None) -> dict:
         """
         Generate a tailored cover letter for a specific role.
@@ -311,13 +482,14 @@ Requirements:
             fit_evaluation:   Prior fit evaluation text for strategic context.
             company_name:     Company name (extracted from JD if not provided).
             role_title:       Role title (extracted from JD if not provided).
+            tone:             Framing angle — "hybrid" (default), "research", or "engineering".
             model:            OpenAI model to use.
             stream_callback:  Optional callable(str) for streaming chunks.
 
         Returns:
             {"cover_letter": str, "model": str, "tokens_used": int}
         """
-        cv_context = self._create_cv_context()
+        cv_context   = self._create_cv_context()
         company_info = f"Company: {company_name}" if company_name else "[Extract company from job description]"
         role_info    = f"Role: {role_title}"       if role_title    else "[Extract role title from job description]"
         eval_block   = (
@@ -325,6 +497,8 @@ Requirements:
             if fit_evaluation
             else "## NOTE\nNo prior evaluation — infer the best positioning directly from the job description and CV."
         )
+        tone_instruction = self._COVER_LETTER_TONES.get(tone or "hybrid",
+                                                         self._COVER_LETTER_TONES["hybrid"])
 
         user_prompt = f"""{cv_context}
 
@@ -341,20 +515,37 @@ Requirements:
 {company_info}
 {role_info}
 
-Write a compelling cover letter. Follow these examples as reference for tone, structure, and length:
+## TONE / FRAMING DIRECTIVE
 
-Structure the cover letter as follows:
-- Opening: name the specific company and role; state one genuine reason for interest; give a clear value proposition. NEVER open with "I am writing to apply for..."
-- Middle (1-2 paragraphs): 1-2 concrete, specific examples from the CV with outcomes — described in terms of transferable value, not just task descriptions
-- Closing: one forward-looking sentence. Confident, not pushy or groveling.
-- Sign off: "Warm regards," followed by the candidate's full name as given in the profile.
+{tone_instruction}
 
-Requirements:
-- 4-5 tight paragraphs, 350-500 words total
-- Use the evaluation to decide the strategic angle, what to emphasize, what to downplay
-- Professional but human — reads like a smart person wrote it, not a template
-- No hollow buzzwords, no exaggerated claims, no AI-sounding phrases
-- Draw only from facts in the CV — never fabricate metrics or project details"""
+Write a cover letter. Apply the TONE DIRECTIVE above as the primary framing decision.
+
+STRUCTURE:
+1. Opening paragraph — hook, company, role, why now:
+   - First sentence must compel the reader to keep going. It is NOT an introduction — it is a hook.
+   - Name the company and role explicitly.
+   - Give ONE specific, genuine reason this company/role is interesting right now — reference something real from the JD (a product, a technical challenge, a stated mission).
+   - End the paragraph with a one-sentence value proposition: what does this candidate uniquely bring?
+
+2. Middle (1-2 paragraphs) — evidence:
+   - 1-2 concrete examples from the CV. Use the impact formula: "Built [what] for [who/context], which [outcome/result]."
+   - Outcomes over process. Numbers over adjectives. Name the actual projects/organisations.
+   - Frame in terms of transferable value to THIS role specifically.
+   - If there is a relevant gap, bridge it confidently in one sentence: "While I haven't worked directly with X, my work on Y gave me deep grounding in the underlying principles" — never hide, never grovel.
+
+3. Closing paragraph:
+   - One forward-looking sentence expressing genuine interest in discussing further.
+   - Confident, not pushy. Not "I would be grateful for any opportunity".
+   - Sign off: "Warm regards," then a line break, then the candidate's full name exactly as given in the profile.
+
+REQUIREMENTS:
+- 4-5 tight paragraphs, 350-450 words total. Every sentence earns its place.
+- Apply the tone directive as the framing lens throughout.
+- Human voice — reads like a sharp person wrote it on their best day, not an AI filling a template.
+- No banned language. No hollow adjectives.
+- Draw only from CV facts — never fabricate metrics or project details.
+- Output the letter only — no header, no label, no explanation."""
 
         result = self._call_api(
             messages=[
@@ -408,15 +599,26 @@ Requirements:
 
 ---
 
-Provide a strong, specific answer to this application question.
+First, identify the question type, then write the answer accordingly.
 
-Requirements:
-- Draw directly from the CV experiences provided — no generic answers
-- Tailor the answer to this specific role and company
-- Natural, human language — confident, not a rehearsed speech
-- Appropriate length: concise for short questions, structured for open-ended ones
-- Honest: acknowledge gaps if directly relevant, but position strengths prominently
-- No hollow buzzwords or inflated claims"""
+QUESTION TYPE GUIDE:
+- "Why this company / why this role?" → Show specific knowledge of the company. Reference something real: their product, their technical approach, their stated mission. Connect it to a genuine aspect of the candidate's direction. Avoid generic "I've always been passionate about X."
+- "Tell me about yourself / walk me through your background" → Lead with the most relevant part of the candidate's story for THIS role. 3-4 sentences max. End with why this role is the natural next step.
+- "Describe a time you..." (competency/STAR) → Full STAR structure: Situation (brief), Task (what was at stake), Action (what the candidate specifically did — not "we"), Result (concrete outcome). Use a real CV example.
+- "What is your greatest weakness / area for development?" → Name a real, plausible weakness. Show self-awareness and what the candidate is actively doing about it. Don't give the insulting fake answer ("I work too hard").
+- "Where do you see yourself in 5 years?" → Be honest about direction. Connect it to why this role is a meaningful step, not a dead end.
+- Technical question → Lead with the direct answer. Then add depth: approach, trade-offs considered, real examples from CV.
+- Short-answer field (100-250 words) → Be crisp. No padding. Every sentence adds something.
+- Long-answer / essay → Use clear structure. No headers needed, but logical flow with a strong opening sentence.
+
+REQUIREMENTS:
+- Draw directly from the CV — no generic answers that could come from anyone
+- Tailor to this specific role and company
+- Natural, confident language — not a rehearsed speech, not AI-formal
+- Appropriate length for the question format
+- If there's a genuine gap relevant to the question, acknowledge it briefly and bridge confidently
+- No banned language, no hollow buzzwords, no inflated claims
+- Output the answer only — no label, no preamble"""
 
         result = self._call_api(
             messages=[
@@ -424,6 +626,7 @@ Requirements:
                 {"role": "user",   "content": user_prompt},
             ],
             model=model,
+            temperature=0.4,
             stream_callback=stream_callback,
         )
         return {
@@ -466,30 +669,35 @@ Requirements:
 
 ---
 
-Generate comprehensive interview preparation for the candidate for this specific role. Structure it as four parts:
+Generate comprehensive interview preparation for this specific role. Structure as five parts:
 
 PART 1: TECHNICAL QUESTIONS AND ANSWERS
-Generate 5-7 technical questions this interview panel is likely to ask, based on the job requirements.
-For each question, write a strong, specific answer grounded in the candidate's actual CV — real projects, real results.
-Not hypothetical. Draw from specific projects and achievements in the CV where relevant.
+Generate 6-8 technical questions this interview panel is likely to ask, based on the JD requirements.
+- Prioritise questions that test the most critical skills listed in the JD
+- For each: write the question, then a strong specific answer grounded in the candidate's actual CV (real projects, real numbers where available)
+- Include at least one question that probes for depth beyond the CV's surface claims
 
 PART 2: BEHAVIORAL QUESTIONS (STAR FORMAT)
-Generate 4-5 behavioral questions focused on: cross-functional collaboration, handling ambiguity, technical leadership, shipping under constraints, failure and recovery.
-For each question: write the question, then a complete STAR answer (Situation, Task, Action, Result) drawn from the candidate's actual experience.
+Generate 5-6 behavioral questions covering: cross-functional collaboration, handling ambiguity, technical leadership, delivering under constraints, failure and recovery, influencing without authority, handling a disagreement with a senior stakeholder.
+For each: write the question, then a complete STAR answer (Situation — brief; Task — what was at stake; Action — what this candidate specifically did, not "we"; Result — concrete outcome) drawn from actual CV experience.
 
-PART 3: QUESTIONS THE CANDIDATE SHOULD ASK THEM
-Generate 5-6 sharp, intelligent questions for the candidate to ask the interviewer. These should:
-- Signal genuine technical curiosity and strategic thinking
-- Probe team culture, technical stack decisions, research-to-production balance, and what "good" looks like in this role
-- Avoid generic questions like "what does a typical day look like"
-- Be specific to this company and role
+PART 3: QUESTIONS THE CANDIDATE SHOULD ASK
+Generate 6-7 sharp questions for the candidate to ask. Each question should:
+- Signal genuine curiosity and strategic thinking, not box-checking
+- Probe something the candidate genuinely needs to know: technical decisions, team dynamics, research-to-production balance, what success looks like at 6 months, why the last person in this role left/moved on
+- Be specific to this company and role — nothing generic
+- NOT be answerable from the JD alone
 
-PART 4: CULTURE AND MOTIVATION QUESTIONS
-Generate 3-4 questions about "why this company / why this role" that the interviewer might ask.
-For each: write the question and a strong, honest answer connecting the candidate's actual motivations and career direction to this specific company's mission.
+PART 4: MOTIVATION AND FIT QUESTIONS
+Generate 4-5 "why us / why this role" questions the interviewer is likely to ask.
+For each: write the question and a strong, honest answer grounded in the candidate's actual career direction and motivations — not generic enthusiasm. Connect specifically to this company's mission, stage, or technical approach.
 
-Every answer must sound like a confident, senior technical person — not a rehearsed script.
-Be specific. Reference actual CV content throughout."""
+PART 5: HANDLING DIFFICULT TERRITORY
+Identify 3-4 potential weak spots for this candidate in this specific role (gaps from Section 3 of the evaluation, or profile areas that won't map cleanly).
+For each: write the likely tough question the interviewer will ask, then a confident, honest bridging answer — acknowledge the gap, don't hide it, then immediately pivot to what the candidate does have that addresses the underlying need.
+
+Every answer must sound like a confident, senior person — not a rehearsed script.
+Be specific. Reference actual CV content throughout. Generic prep is useless."""
 
         result = self._call_api(
             messages=[
@@ -542,23 +750,29 @@ Be specific. Reference actual CV content throughout."""
 
 ---
 
-Write a short LinkedIn outreach message from the candidate to a recruiter or hiring manager for this role.
+Write a LinkedIn outreach message from the candidate to a recruiter or hiring manager.
 
 Greeting to use: {greeting}
 
-Requirements:
-- Maximum 200-250 words — brevity is critical for LinkedIn
-- Opens with something specific about the company or role, NOT "I came across your posting" or generic openers
-- 1-2 sentences on why the candidate is a strong fit — pick the most compelling angle, be concrete
-- A clear, low-friction call to action (a quick call, expressing interest — not "please consider my application")
-- Warm, professional tone — confident, conversational, not stiff
-- Reads like a real person wrote it: precise, not flashy
-- Sign off with the candidate's full name as given in the profile
+CRITICAL — THE FIRST SENTENCE:
+The first sentence is make or break. It determines whether the message gets read or deleted.
+- It must be a statement, not a question, not a compliment to the recruiter
+- It must be about something specific: a product the company makes, a technical problem they're working on, a recent announcement, something in the JD that is genuinely interesting
+- It must not start with "I" or reference the candidate at all
+- BAD: "I came across your posting and was excited by the opportunity"
+- BAD: "I hope you're doing well"
+- GOOD: "The work [Company] is doing on [specific technical area from JD] is one of the few serious attempts to [what it's trying to solve] — and it's rare to see it done with [specific approach mentioned in JD]."
 
-Do NOT:
-- Use hollow phrases like "passionate about", "excited to leverage", "synergies"
-- Write it like a mini cover letter
-- Be excessively formal
+STRUCTURE:
+1. Hook sentence (about them / the work)
+2. 1-2 sentences on fit: the single most compelling angle. Be concrete — name a skill, a project, a result. One strong specific beats three vague claims.
+3. One low-friction call to action: "happy to share more if useful" or "open to a quick chat if timing works" — not a formal application request
+
+REQUIREMENTS:
+- 100-150 words absolute maximum. LinkedIn messages get skimmed.
+- Conversational and confident — sounds like a real person, not a cover letter
+- Sign off with the candidate's full name as given in the profile
+- No banned language. No hollow phrases.
 
 Output ONLY the message text, ready to copy-paste."""
 
@@ -575,6 +789,147 @@ Output ONLY the message text, ready to copy-paste."""
             "linkedin_message": result["content"],
             "model":            model,
             "tokens_used":      result["tokens_used"],
+        }
+
+    def generate_followup_email(self, job_description: str, interviewer_name: str = None,
+                                interview_notes: str = None, model: str = "gpt-4o",
+                                stream_callback=None) -> dict:
+        """
+        Generate a concise thank-you / follow-up email after an interview.
+
+        Args:
+            job_description:  The job posting or role context.
+            interviewer_name: Optional name of the interviewer(s) for personalisation.
+            interview_notes:  Optional notes on what was discussed — used to add a
+                              specific reference that makes the email feel genuine.
+            model:            OpenAI model to use.
+            stream_callback:  Optional callable(str) for streaming chunks.
+
+        Returns:
+            {"followup_email": str, "model": str, "tokens_used": int}
+        """
+        cv_context = self._create_cv_context()
+
+        interviewer_block = (
+            f"Interviewer name(s): {interviewer_name}"
+            if interviewer_name
+            else "Interviewer name: unknown — use a generic but warm greeting"
+        )
+        notes_block = (
+            f"Key things discussed during the interview:\n{interview_notes}"
+            if interview_notes
+            else "No specific interview notes provided — reference something plausible from the role."
+        )
+
+        user_prompt = f"""{cv_context}
+
+## JOB DESCRIPTION / ROLE CONTEXT
+
+{job_description}
+
+---
+
+{interviewer_block}
+
+{notes_block}
+
+---
+
+Write a short thank-you / follow-up email from the candidate to the interviewer(s) after a job interview.
+
+Requirements:
+- 150-200 words — concise and respectful of the reader's time
+- Warm but not groveling — confident, genuine, professional
+- Reference ONE specific thing from the conversation (use the notes above if provided)
+- Reaffirm interest in the role with a brief, concrete reason — not generic enthusiasm
+- Clear, low-friction closing — express readiness for next steps without being pushy
+- Sign off with the candidate's full name as given in the profile
+
+Do NOT:
+- Open with "I wanted to reach out" or "I hope this email finds you well"
+- Be excessively effusive ("It was AMAZING to meet you")
+- Summarise the entire interview
+- Add hollow filler phrases
+
+Output ONLY the email text (subject line first, then body), ready to send."""
+
+        result = self._call_api(
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            model=model,
+            temperature=0.6,
+            stream_callback=stream_callback,
+        )
+        return {
+            "followup_email": result["content"],
+            "model":          model,
+            "tokens_used":    result["tokens_used"],
+        }
+
+    def analyze_ats_fit(self, job_description: str, content: str,
+                        model: str = "gpt-4o", stream_callback=None) -> dict:
+        """
+        Analyse how well a piece of content (CV summary, cover letter, etc.)
+        matches the job description from an ATS / keyword perspective.
+
+        Args:
+            job_description: The full job posting text.
+            content:         The generated material to evaluate (cover letter, CV summary…).
+            model:           OpenAI model to use.
+            stream_callback: Optional callable(str) for streaming chunks.
+
+        Returns:
+            {"ats_analysis": str, "model": str, "tokens_used": int}
+        """
+        user_prompt = f"""## JOB DESCRIPTION
+
+{job_description}
+
+---
+
+## CONTENT TO EVALUATE
+
+{content}
+
+---
+
+Perform an ATS (Applicant Tracking System) keyword analysis of the content above against the job description.
+
+Produce a structured report with these exact sections:
+
+MATCH SCORE
+Give a single score from 0–100 reflecting keyword and requirement coverage. Format: "Score: XX/100"
+One sentence of plain-language interpretation (e.g. "Strong match — most critical requirements are addressed.").
+
+KEYWORDS PRESENT
+List the key skills, tools, qualifications, and phrases from the JD that appear in the content.
+Group as bullet points. Be specific — use the exact terms from the JD.
+
+KEYWORDS MISSING
+List important skills, tools, qualifications, and phrases from the JD that are absent from the content.
+Focus on must-haves and strong-signals. Ignore minor or generic phrases.
+
+SUGGESTED ADDITIONS
+For each missing keyword that the candidate plausibly has (based on the content's context), suggest a concrete sentence or phrase that could be inserted to address the gap.
+If a keyword is genuinely absent from the candidate's profile, say so rather than fabricating.
+
+Keep the report concise and actionable. No filler."""
+
+        result = self._call_api(
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            model=model,
+            temperature=0.2,
+            stream_callback=stream_callback,
+        )
+        return {
+            "ats_analysis": result["content"],
+            "model":        model,
+            "tokens_used":  result["tokens_used"],
         }
 
     def extract_job_details(self, job_description: str, model: str = "gpt-4o") -> dict:
@@ -626,6 +981,158 @@ Output ONLY the message text, ready to copy-paste."""
         except Exception:
             pass
         return {"company": "", "role": "", "location": ""}
+
+    def analyze_rejection(self, company_name: str = None, role_title: str = None,
+                          rejection_message: str = None, application_materials: str = None,
+                          model: str = "gpt-4o", stream_callback=None) -> dict:
+        """
+        Analyse a job rejection and provide actionable learning.
+
+        Args:
+            company_name:          Company that rejected the candidate.
+            role_title:            Role applied for.
+            rejection_message:     The rejection email / message text (optional).
+            application_materials: Generated cover letter / CV summary submitted (optional).
+            model:                 OpenAI model to use.
+            stream_callback:       Optional callable(str) for streaming chunks.
+
+        Returns:
+            {"rejection_analysis": str, "model": str, "tokens_used": int}
+        """
+        cv_context = self._create_cv_context()
+
+        role_ctx = f"{role_title} at {company_name}" if role_title and company_name else \
+                   (company_name or role_title or "this role")
+
+        materials_block = (
+            f"## APPLICATION MATERIALS SUBMITTED\n\n{application_materials}"
+            if application_materials
+            else "## APPLICATION MATERIALS\nNot provided — reason from context only."
+        )
+        rejection_block = (
+            f"## REJECTION MESSAGE\n\n{rejection_message}"
+            if rejection_message
+            else "## REJECTION MESSAGE\nNot provided — analyse based on profile and role fit only."
+        )
+
+        user_prompt = f"""{cv_context}
+
+## ROLE APPLIED FOR
+
+{role_ctx}
+
+---
+
+{materials_block}
+
+---
+
+{rejection_block}
+
+---
+
+Analyse this rejection and produce a structured report with three sections:
+
+LIKELY CAUSES
+Based on the candidate's profile, the materials (if provided), and the rejection message (if provided):
+- What most likely caused the rejection? Be direct and specific.
+- Was it a fit issue (skills, experience, seniority), a presentation issue (how they were positioned), a process issue (timing, competition), or something else?
+- If the rejection message gives clues, extract them explicitly.
+
+WHAT TO DO DIFFERENTLY
+Concrete, actionable changes for next applications:
+- If it's a skill gap: what specifically to address and how
+- If it's a positioning issue: what angle to use instead
+- If it's a presentation issue: what to change in the materials
+- Maximum 4-5 bullet points, each with a specific action
+
+WHAT WAS STRONG
+Identify the aspects of this candidate's application or profile that were likely strong for this role.
+This is not consolation — it's data for where to focus future applications.
+
+Be honest, direct, and constructive. No platitudes. The goal is to extract maximum learning from this rejection."""
+
+        result = self._call_api(
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            model=model,
+            temperature=0.3,
+            stream_callback=stream_callback,
+        )
+        return {
+            "rejection_analysis": result["content"],
+            "model":              model,
+            "tokens_used":        result["tokens_used"],
+        }
+
+    def generate_salary_negotiation(self, offer_details: str, job_description: str = None,
+                                     model: str = "gpt-4o", stream_callback=None) -> dict:
+        """
+        Analyse a received offer and generate counter-offer strategy + negotiation email.
+
+        Args:
+            offer_details:   The received offer text (salary, bonus, equity, benefits, etc.).
+            job_description: Optional job posting for context.
+            model:           OpenAI model to use.
+            stream_callback: Optional callable(str) for streaming chunks.
+
+        Returns:
+            {"salary_negotiation": str, "model": str, "tokens_used": int}
+        """
+        cv_context = self._create_cv_context()
+        jd_block = f"## JOB DESCRIPTION (for context)\n\n{job_description}" if job_description else ""
+
+        user_prompt = f"""{cv_context}
+
+## OFFER RECEIVED
+
+{offer_details}
+
+{jd_block}
+
+---
+
+Analyse this offer and produce a salary negotiation brief with three sections:
+
+OFFER ASSESSMENT
+- Is this offer fair for this candidate's profile, experience level, and market?
+- Rating: Strong / Fair / Low — with clear reasoning
+- What specifically makes it strong, fair, or low? Reference salary benchmarks from the profile (Section 5) and the role signals.
+- What elements beyond base salary are worth negotiating (equity, bonus, start date, remote, title, review timeline)?
+
+COUNTER-OFFER STRATEGY
+- Recommended counter: specific number or range (not vague "above market")
+- Reasoning: why this number is justified and defensible
+- Priority order of what to push on: what matters most vs. what's a nice-to-have
+- What to accept without pushback if they won't move on salary
+- What would make this offer unacceptable regardless of other terms
+
+NEGOTIATION SCRIPT
+Write a 150-200 word negotiation email or message the candidate can send.
+- Opens by expressing genuine interest in the role — not desperation
+- States the counter clearly and confidently — no apology for asking
+- Gives 1-2 brief, factual reasons for the counter (market rate, experience level, competing offers if applicable)
+- Leaves the door open without groveling
+- Signs off with the candidate's full name as given in the profile
+
+Be direct. Give specific numbers. Don't hedge with "it depends" — the candidate needs actionable guidance."""
+
+        result = self._call_api(
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            model=model,
+            temperature=0.3,
+            stream_callback=stream_callback,
+        )
+        return {
+            "salary_negotiation": result["content"],
+            "model":              model,
+            "tokens_used":        result["tokens_used"],
+        }
 
     def full_application_package(self, job_description: str, company_name: str = None,
                                   role_title: str = None, model: str = "gpt-4o") -> dict:
