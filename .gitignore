@@ -1,3 +1,12 @@
+# Personal data files — not committed to version control
+history.json
+applications.json
+config.json
+drafts.json
+Reza_CV.pdf
+Reza_Profile_Personal.md
+Reza_Old_profile.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
