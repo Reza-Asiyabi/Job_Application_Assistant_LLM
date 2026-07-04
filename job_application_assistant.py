@@ -43,6 +43,41 @@ def get_profile_paths() -> dict:
     }
 
 
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _render_prompt(name: str, **variables) -> str:
+    """Load prompts/<name>.md and substitute {{token}} placeholders.
+
+    Templates are re-read on every call so edits take effect immediately.
+    See prompts/README.md for the token reference.
+    """
+    path = PROMPTS_DIR / f"{name}.md"
+    try:
+        template = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(
+            f"Prompt template not found: {path}\n"
+            "Restore the prompts/ directory from the repository."
+        ) from e
+    for key, value in variables.items():
+        template = template.replace("{{" + key + "}}", str(value))
+    return template.strip()
+
+
+def _load_tone(tone: str) -> str:
+    """Load the cover-letter tone directive from prompts/tone_<tone>.md.
+    Unknown tones fall back to hybrid."""
+    key = (tone or "hybrid").strip().lower()
+    path = PROMPTS_DIR / f"tone_{key}.md"
+    if not path.exists():
+        path = PROMPTS_DIR / "tone_hybrid.md"
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        raise RuntimeError(f"Tone template not found: {path}") from e
+
+
 def _format_ollama_size(bytes_: int) -> str:
     """Human-readable file size for Ollama model display."""
     for unit in ("B", "KB", "MB", "GB"):
@@ -371,51 +406,11 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             {"evaluation": str, "model": str, "tokens_used": int}
         """
         cv_context = self._create_cv_context()
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION TO EVALUATE
-
-{job_description}
-
----
-
-Provide a comprehensive, honest job fit evaluation. Structure it exactly as follows:
-
-1. FIT ASSESSMENT
-State: Strong fit / Partial fit / Weak fit.
-Then in 2-3 sentences: why. Be direct. No hedging.
-
-2. MATCH ANALYSIS
-- Core strengths that directly align with this role's requirements (cite specific CV evidence)
-- Unique advantages this candidate brings that the JD may not have explicitly asked for but will value
-- Read the JD carefully: some "preferred" requirements are disguised must-haves. Flag those.
-
-3. GAPS AND RISKS
-- Missing or under-represented skills/experience — be specific, name them
-- Concerns from the employer's perspective (e.g. seniority mismatch, industry gap, missing credentials)
-- Any genuine red flags. If none, say so.
-
-4. COMPANY AND ROLE CONTEXT
-- What does this company/team likely care about most? What does "great" look like in this role?
-- Stage of company (startup / scale-up / enterprise) and what that means for the candidate
-- Any signals in the JD about culture, pace, technical depth expectations
-
-5. SALARY ESTIMATE
-- Expected salary range for this candidate in this role
-- Justify the range: company stage, location premium, role seniority, specialisation signals
-- Flag clearly if the role appears to be underpaying for the candidate's level
-
-6. STRATEGIC POSITIONING
-- Which role archetype best fits (derive this from the profile's Section 4 archetypes)
-- Exactly what to emphasize in the application — specific skills, specific projects
-- What to downplay or reframe — be tactical, not evasive
-- One sentence: the single strongest angle for this application
-
-7. APPLICATION RECOMMENDATION
-Yes / Conditional / No — followed by clear reasoning.
-If Conditional: state exactly what conditions would change the answer.
-
-Be honest. Be specific. Reference actual CV details throughout. A candidate reading this should come away knowing exactly what to do."""
+        user_prompt = _render_prompt(
+            "evaluate_job_fit",
+            cv_context=cv_context,
+            job_description=job_description,
+        )
 
         result = self._call_api(
             messages=[
@@ -454,39 +449,12 @@ Be honest. Be specific. Reference actual CV details throughout. A candidate read
             else "## NOTE\nNo prior evaluation — infer the best positioning directly from the job description and CV."
         )
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION
-
-{job_description}
-
----
-
-{eval_block}
-
----
-
-Write a CV/profile summary for this candidate, tailored specifically to this role.
-
-STYLE REFERENCE — these examples show the correct LENGTH and TONE. Do not copy the content; adapt the approach to this candidate's actual background:
-
-Example A (research-to-industry transition framing):
-"ML researcher transitioning into AI safety and alignment research. Proven track record designing interpretable deep learning architectures across high-impact projects. Expertise in building models that maintain reliability under distribution shift, grounded in end-to-end empirical research from architecture design through publication. Rapid adapter to new research domains with a record of clear cross-disciplinary communication."
-
-Example B (engineering/product framing):
-"ML engineer with a strong record building and shipping production geospatial data pipelines from multi-source Earth Observation data. Delivered operational solutions across projects spanning government agencies, universities, and national research bodies. Work focuses on reliable, scalable pipelines that translate complex satellite data into decision-ready analytics — from data ingestion through cloud deployment."
-
-Example C (applied scientist framing):
-"Applied ML Scientist with deep experience developing domain-aware, deployable deep learning systems. Track record taking research innovations to production in collaboration with engineering and product teams. Broad technical range across physics-informed learning, LLMs, and multimodal models, with hands-on delivery on high-stakes projects."
-
-REQUIREMENTS:
-- 3-5 sentences. Natural flow — not a bulleted list in prose form.
-- First sentence: immediately establish WHAT the candidate does + at what level. Specific > generic.
-- If the CV contains quantifiable achievements relevant to this role, include one.
-- Use the evaluation context to choose what to foreground for THIS specific role.
-- Consistent first-person voice (implied "I" or explicit) — do not mix.
-- No banned language. No hollow adjectives. No AI-isms.
-- Output ONLY the summary text — no header, no explanation."""
+        user_prompt = _render_prompt(
+            "cv_summary",
+            cv_context=cv_context,
+            job_description=job_description,
+            eval_block=eval_block,
+        )
 
         result = self._call_api(
             messages=[
@@ -502,28 +470,6 @@ REQUIREMENTS:
             "model":       model,
             "tokens_used": result["tokens_used"],
         }
-
-    # Tone framing instructions for cover letter variations
-    _COVER_LETTER_TONES = {
-        "hybrid": (
-            "Use a BALANCED / HYBRID framing — weigh research depth and engineering impact equally. "
-            "Neither the academic angle nor the production angle should dominate."
-        ),
-        "research": (
-            "Use a RESEARCH-LED framing:\n"
-            "- Open by foregrounding publications, domain expertise, or methodological depth as the key differentiator\n"
-            "- Emphasise intellectual contribution, novel approaches, and academic credibility\n"
-            "- Frame projects in terms of research impact, not just delivery\n"
-            "- Tone: peer-to-peer scientific — confident about research contributions, not apologetic about academia"
-        ),
-        "engineering": (
-            "Use an ENGINEERING-LED framing:\n"
-            "- Open by foregrounding shipped systems, production deployments, or quantified engineering outcomes\n"
-            "- Emphasise scale, reliability, performance, and practical delivery speed\n"
-            "- Frame projects in terms of systems built, problems solved at scale, and measurable business results\n"
-            "- Tone: engineering-first — results over methods, action-oriented, production-ready"
-        ),
-    }
 
     def generate_cover_letter(self, job_description: str, fit_evaluation: str = None,
                                company_name: str = None, role_title: str = None,
@@ -552,55 +498,17 @@ REQUIREMENTS:
             if fit_evaluation
             else "## NOTE\nNo prior evaluation — infer the best positioning directly from the job description and CV."
         )
-        tone_instruction = self._COVER_LETTER_TONES.get(tone or "hybrid",
-                                                         self._COVER_LETTER_TONES["hybrid"])
+        tone_instruction = _load_tone(tone)
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION
-
-{job_description}
-
----
-
-{eval_block}
-
----
-
-{company_info}
-{role_info}
-
-## TONE / FRAMING DIRECTIVE
-
-{tone_instruction}
-
-Write a cover letter. Apply the TONE DIRECTIVE above as the primary framing decision.
-
-STRUCTURE:
-1. Opening paragraph — hook, company, role, why now:
-   - First sentence must compel the reader to keep going. It is NOT an introduction — it is a hook.
-   - Name the company and role explicitly.
-   - Give ONE specific, genuine reason this company/role is interesting right now — reference something real from the JD (a product, a technical challenge, a stated mission).
-   - End the paragraph with a one-sentence value proposition: what does this candidate uniquely bring?
-
-2. Middle (1-2 paragraphs) — evidence:
-   - 1-2 concrete examples from the CV. Use the impact formula: "Built [what] for [who/context], which [outcome/result]."
-   - Outcomes over process. Numbers over adjectives. Name the actual projects/organisations.
-   - Frame in terms of transferable value to THIS role specifically.
-   - If there is a relevant gap, bridge it confidently in one sentence: "While I haven't worked directly with X, my work on Y gave me deep grounding in the underlying principles" — never hide, never grovel.
-
-3. Closing paragraph:
-   - One forward-looking sentence expressing genuine interest in discussing further.
-   - Confident, not pushy. Not "I would be grateful for any opportunity".
-   - Sign off: "Warm regards," then a line break, then the candidate's full name exactly as given in the profile.
-
-REQUIREMENTS:
-- 4-5 tight paragraphs, 350-450 words total. Every sentence earns its place.
-- Apply the tone directive as the framing lens throughout.
-- Human voice — reads like a sharp person wrote it on their best day, not an AI filling a template.
-- No banned language. No hollow adjectives.
-- Draw only from CV facts — never fabricate metrics or project details.
-- Output the letter only — no header, no label, no explanation."""
+        user_prompt = _render_prompt(
+            "cover_letter",
+            cv_context=cv_context,
+            job_description=job_description,
+            eval_block=eval_block,
+            company_info=company_info,
+            role_info=role_info,
+            tone_instruction=tone_instruction,
+        )
 
         result = self._call_api(
             messages=[
@@ -638,42 +546,13 @@ REQUIREMENTS:
             if fit_evaluation else ""
         )
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION
-
-{job_description}
-
----
-
-{eval_block}
-
-## APPLICATION QUESTION
-
-{question}
-
----
-
-First, identify the question type, then write the answer accordingly.
-
-QUESTION TYPE GUIDE:
-- "Why this company / why this role?" → Show specific knowledge of the company. Reference something real: their product, their technical approach, their stated mission. Connect it to a genuine aspect of the candidate's direction. Avoid generic "I've always been passionate about X."
-- "Tell me about yourself / walk me through your background" → Lead with the most relevant part of the candidate's story for THIS role. 3-4 sentences max. End with why this role is the natural next step.
-- "Describe a time you..." (competency/STAR) → Full STAR structure: Situation (brief), Task (what was at stake), Action (what the candidate specifically did — not "we"), Result (concrete outcome). Use a real CV example.
-- "What is your greatest weakness / area for development?" → Name a real, plausible weakness. Show self-awareness and what the candidate is actively doing about it. Don't give the insulting fake answer ("I work too hard").
-- "Where do you see yourself in 5 years?" → Be honest about direction. Connect it to why this role is a meaningful step, not a dead end.
-- Technical question → Lead with the direct answer. Then add depth: approach, trade-offs considered, real examples from CV.
-- Short-answer field (100-250 words) → Be crisp. No padding. Every sentence adds something.
-- Long-answer / essay → Use clear structure. No headers needed, but logical flow with a strong opening sentence.
-
-REQUIREMENTS:
-- Draw directly from the CV — no generic answers that could come from anyone
-- Tailor to this specific role and company
-- Natural, confident language — not a rehearsed speech, not AI-formal
-- Appropriate length for the question format
-- If there's a genuine gap relevant to the question, acknowledge it briefly and bridge confidently
-- No banned language, no hollow buzzwords, no inflated claims
-- Output the answer only — no label, no preamble"""
+        user_prompt = _render_prompt(
+            "application_question",
+            cv_context=cv_context,
+            job_description=job_description,
+            eval_block=eval_block,
+            question=question,
+        )
 
         result = self._call_api(
             messages=[
@@ -712,47 +591,12 @@ REQUIREMENTS:
             else "## NOTE\nNo prior evaluation — infer positioning from job description and CV."
         )
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION
-
-{job_description}
-
----
-
-{eval_block}
-
----
-
-Generate comprehensive interview preparation for this specific role. Structure as five parts:
-
-PART 1: TECHNICAL QUESTIONS AND ANSWERS
-Generate 6-8 technical questions this interview panel is likely to ask, based on the JD requirements.
-- Prioritise questions that test the most critical skills listed in the JD
-- For each: write the question, then a strong specific answer grounded in the candidate's actual CV (real projects, real numbers where available)
-- Include at least one question that probes for depth beyond the CV's surface claims
-
-PART 2: BEHAVIORAL QUESTIONS (STAR FORMAT)
-Generate 5-6 behavioral questions covering: cross-functional collaboration, handling ambiguity, technical leadership, delivering under constraints, failure and recovery, influencing without authority, handling a disagreement with a senior stakeholder.
-For each: write the question, then a complete STAR answer (Situation — brief; Task — what was at stake; Action — what this candidate specifically did, not "we"; Result — concrete outcome) drawn from actual CV experience.
-
-PART 3: QUESTIONS THE CANDIDATE SHOULD ASK
-Generate 6-7 sharp questions for the candidate to ask. Each question should:
-- Signal genuine curiosity and strategic thinking, not box-checking
-- Probe something the candidate genuinely needs to know: technical decisions, team dynamics, research-to-production balance, what success looks like at 6 months, why the last person in this role left/moved on
-- Be specific to this company and role — nothing generic
-- NOT be answerable from the JD alone
-
-PART 4: MOTIVATION AND FIT QUESTIONS
-Generate 4-5 "why us / why this role" questions the interviewer is likely to ask.
-For each: write the question and a strong, honest answer grounded in the candidate's actual career direction and motivations — not generic enthusiasm. Connect specifically to this company's mission, stage, or technical approach.
-
-PART 5: HANDLING DIFFICULT TERRITORY
-Identify 3-4 potential weak spots for this candidate in this specific role (gaps from Section 3 of the evaluation, or profile areas that won't map cleanly).
-For each: write the likely tough question the interviewer will ask, then a confident, honest bridging answer — acknowledge the gap, don't hide it, then immediately pivot to what the candidate does have that addresses the underlying need.
-
-Every answer must sound like a confident, senior person — not a rehearsed script.
-Be specific. Reference actual CV content throughout. Generic prep is useless."""
+        user_prompt = _render_prompt(
+            "interview_prep",
+            cv_context=cv_context,
+            job_description=job_description,
+            eval_block=eval_block,
+        )
 
         result = self._call_api(
             messages=[
@@ -793,43 +637,13 @@ Be specific. Reference actual CV content throughout. Generic prep is useless."""
         )
         greeting = f"Hi {recruiter_name}," if recruiter_name else "Hi [Name],"
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION / ROLE CONTEXT
-
-{job_description}
-
----
-
-{eval_block}
-
----
-
-Write a LinkedIn outreach message from the candidate to a recruiter or hiring manager.
-
-Greeting to use: {greeting}
-
-CRITICAL — THE FIRST SENTENCE:
-The first sentence is make or break. It determines whether the message gets read or deleted.
-- It must be a statement, not a question, not a compliment to the recruiter
-- It must be about something specific: a product the company makes, a technical problem they're working on, a recent announcement, something in the JD that is genuinely interesting
-- It must not start with "I" or reference the candidate at all
-- BAD: "I came across your posting and was excited by the opportunity"
-- BAD: "I hope you're doing well"
-- GOOD: "The work [Company] is doing on [specific technical area from JD] is one of the few serious attempts to [what it's trying to solve] — and it's rare to see it done with [specific approach mentioned in JD]."
-
-STRUCTURE:
-1. Hook sentence (about them / the work)
-2. 1-2 sentences on fit: the single most compelling angle. Be concrete — name a skill, a project, a result. One strong specific beats three vague claims.
-3. One low-friction call to action: "happy to share more if useful" or "open to a quick chat if timing works" — not a formal application request
-
-REQUIREMENTS:
-- 100-150 words absolute maximum. LinkedIn messages get skimmed.
-- Conversational and confident — sounds like a real person, not a cover letter
-- Sign off with the candidate's full name as given in the profile
-- No banned language. No hollow phrases.
-
-Output ONLY the message text, ready to copy-paste."""
+        user_prompt = _render_prompt(
+            "linkedin_message",
+            cv_context=cv_context,
+            job_description=job_description,
+            eval_block=eval_block,
+            greeting=greeting,
+        )
 
         result = self._call_api(
             messages=[
@@ -876,37 +690,13 @@ Output ONLY the message text, ready to copy-paste."""
             else "No specific interview notes provided — reference something plausible from the role."
         )
 
-        user_prompt = f"""{cv_context}
-
-## JOB DESCRIPTION / ROLE CONTEXT
-
-{job_description}
-
----
-
-{interviewer_block}
-
-{notes_block}
-
----
-
-Write a short thank-you / follow-up email from the candidate to the interviewer(s) after a job interview.
-
-Requirements:
-- 150-200 words — concise and respectful of the reader's time
-- Warm but not groveling — confident, genuine, professional
-- Reference ONE specific thing from the conversation (use the notes above if provided)
-- Reaffirm interest in the role with a brief, concrete reason — not generic enthusiasm
-- Clear, low-friction closing — express readiness for next steps without being pushy
-- Sign off with the candidate's full name as given in the profile
-
-Do NOT:
-- Open with "I wanted to reach out" or "I hope this email finds you well"
-- Be excessively effusive ("It was AMAZING to meet you")
-- Summarise the entire interview
-- Add hollow filler phrases
-
-Output ONLY the email text (subject line first, then body), ready to send."""
+        user_prompt = _render_prompt(
+            "followup_email",
+            cv_context=cv_context,
+            job_description=job_description,
+            interviewer_block=interviewer_block,
+            notes_block=notes_block,
+        )
 
         result = self._call_api(
             messages=[
@@ -938,39 +728,11 @@ Output ONLY the email text (subject line first, then body), ready to send."""
         Returns:
             {"ats_analysis": str, "model": str, "tokens_used": int}
         """
-        user_prompt = f"""## JOB DESCRIPTION
-
-{job_description}
-
----
-
-## CONTENT TO EVALUATE
-
-{content}
-
----
-
-Perform an ATS (Applicant Tracking System) keyword analysis of the content above against the job description.
-
-Produce a structured report with these exact sections:
-
-MATCH SCORE
-Give a single score from 0–100 reflecting keyword and requirement coverage. Format: "Score: XX/100"
-One sentence of plain-language interpretation (e.g. "Strong match — most critical requirements are addressed.").
-
-KEYWORDS PRESENT
-List the key skills, tools, qualifications, and phrases from the JD that appear in the content.
-Group as bullet points. Be specific — use the exact terms from the JD.
-
-KEYWORDS MISSING
-List important skills, tools, qualifications, and phrases from the JD that are absent from the content.
-Focus on must-haves and strong-signals. Ignore minor or generic phrases.
-
-SUGGESTED ADDITIONS
-For each missing keyword that the candidate plausibly has (based on the content's context), suggest a concrete sentence or phrase that could be inserted to address the gap.
-If a keyword is genuinely absent from the candidate's profile, say so rather than fabricating.
-
-Keep the report concise and actionable. No filler."""
+        user_prompt = _render_prompt(
+            "ats_analysis",
+            job_description=job_description,
+            content=content,
+        )
 
         result = self._call_api(
             messages=[
@@ -1070,42 +832,13 @@ Keep the report concise and actionable. No filler."""
             else "## REJECTION MESSAGE\nNot provided — analyse based on profile and role fit only."
         )
 
-        user_prompt = f"""{cv_context}
-
-## ROLE APPLIED FOR
-
-{role_ctx}
-
----
-
-{materials_block}
-
----
-
-{rejection_block}
-
----
-
-Analyse this rejection and produce a structured report with three sections:
-
-LIKELY CAUSES
-Based on the candidate's profile, the materials (if provided), and the rejection message (if provided):
-- What most likely caused the rejection? Be direct and specific.
-- Was it a fit issue (skills, experience, seniority), a presentation issue (how they were positioned), a process issue (timing, competition), or something else?
-- If the rejection message gives clues, extract them explicitly.
-
-WHAT TO DO DIFFERENTLY
-Concrete, actionable changes for next applications:
-- If it's a skill gap: what specifically to address and how
-- If it's a positioning issue: what angle to use instead
-- If it's a presentation issue: what to change in the materials
-- Maximum 4-5 bullet points, each with a specific action
-
-WHAT WAS STRONG
-Identify the aspects of this candidate's application or profile that were likely strong for this role.
-This is not consolation — it's data for where to focus future applications.
-
-Be honest, direct, and constructive. No platitudes. The goal is to extract maximum learning from this rejection."""
+        user_prompt = _render_prompt(
+            "rejection_analysis",
+            cv_context=cv_context,
+            role_ctx=role_ctx,
+            materials_block=materials_block,
+            rejection_block=rejection_block,
+        )
 
         result = self._call_api(
             messages=[
@@ -1139,40 +872,12 @@ Be honest, direct, and constructive. No platitudes. The goal is to extract maxim
         cv_context = self._create_cv_context()
         jd_block = f"## JOB DESCRIPTION (for context)\n\n{job_description}" if job_description else ""
 
-        user_prompt = f"""{cv_context}
-
-## OFFER RECEIVED
-
-{offer_details}
-
-{jd_block}
-
----
-
-Analyse this offer and produce a salary negotiation brief with three sections:
-
-OFFER ASSESSMENT
-- Is this offer fair for this candidate's profile, experience level, and market?
-- Rating: Strong / Fair / Low — with clear reasoning
-- What specifically makes it strong, fair, or low? Reference salary benchmarks from the profile (Section 5) and the role signals.
-- What elements beyond base salary are worth negotiating (equity, bonus, start date, remote, title, review timeline)?
-
-COUNTER-OFFER STRATEGY
-- Recommended counter: specific number or range (not vague "above market")
-- Reasoning: why this number is justified and defensible
-- Priority order of what to push on: what matters most vs. what's a nice-to-have
-- What to accept without pushback if they won't move on salary
-- What would make this offer unacceptable regardless of other terms
-
-NEGOTIATION SCRIPT
-Write a 150-200 word negotiation email or message the candidate can send.
-- Opens by expressing genuine interest in the role — not desperation
-- States the counter clearly and confidently — no apology for asking
-- Gives 1-2 brief, factual reasons for the counter (market rate, experience level, competing offers if applicable)
-- Leaves the door open without groveling
-- Signs off with the candidate's full name as given in the profile
-
-Be direct. Give specific numbers. Don't hedge with "it depends" — the candidate needs actionable guidance."""
+        user_prompt = _render_prompt(
+            "salary_negotiation",
+            cv_context=cv_context,
+            offer_details=offer_details,
+            jd_block=jd_block,
+        )
 
         result = self._call_api(
             messages=[

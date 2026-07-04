@@ -220,6 +220,8 @@ The tool generates application materials by combining your CV with your personal
 
 `profile_instructions.md` defines how the AI behaves — writing tone, banned phrases, quality bar, output rules. You usually don't need to change this.
 
+`prompts/*.md` contains the per-task instructions (evaluation structure, cover letter rules, interview prep format, …). Edit these to change what a specific feature produces — changes apply on the next generation, no restart needed. See [prompts/README.md](prompts/README.md).
+
 ### Option A — Profile Setup Wizard (recommended for new users)
 
 1. Launch the app: `python launch.py`

@@ -34,15 +34,18 @@ JobApplicationAssistant (job_application_assistant.py)
     ├── System prompt = profile_instructions.md + personal profile file (combined)
     │   (paths from get_profile_paths(); fallbacks: personal-only → profile.md → built-in)
     ├── Extracts user name from the "Name:" line → self.user_name
-    └── Per request: [system_prompt] + [cv_context + job_desc + task prompt] → chat API
+    └── Per request: [system_prompt] + rendered prompts/<task>.md template → chat API
+                     (templates re-read every call — edits take effect immediately)
     ↓
 GUI (gui.py) / CLI (cli.py) — thin interfaces over the same assistant class
 ```
 
 ### Key Files
 
-- **`job_application_assistant.py`** — All business logic; task prompts are hardcoded
-  string literals inside each method. Public methods: `evaluate_job_fit`,
+- **`job_application_assistant.py`** — All business logic. Task prompts live in
+  `prompts/*.md` (loaded per call via `_render_prompt()` with `{{token}}` placeholders —
+  see `prompts/README.md`; cover-letter tone directives in `prompts/tone_*.md` via
+  `_load_tone()`). Public methods: `evaluate_job_fit`,
   `generate_cv_summary`, `generate_cover_letter` (tones: hybrid/research/engineering),
   `answer_application_question`, `generate_interview_prep`, `generate_linkedin_message`,
   `generate_followup_email`, `analyze_ats_fit`, `extract_job_details`, `analyze_rejection`,
