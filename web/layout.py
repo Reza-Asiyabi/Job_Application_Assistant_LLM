@@ -9,13 +9,15 @@ from .state import state
 from .theme import ACCENT, CSS
 
 NAV = [
-    ("Evaluate", "/",          "query_stats"),
-    ("Generate", "/generate",  "auto_awesome"),
-    ("Q & A",    "/qa",        "quiz"),
-    ("Tracker",  "/tracker",   "table_rows"),
-    ("History",  "/history",   "history"),
+    ("Evaluate",  "/",          "query_stats"),
+    ("Generate",  "/generate",  "auto_awesome"),
+    ("Q & A",     "/qa",        "quiz"),
+    ("Package",   "/package",   "inventory_2"),
+    ("Interview", "/interview", "school"),
+    ("Tracker",   "/tracker",   "table_rows"),
+    ("History",   "/history",   "history"),
 ]
-COMING_SOON = ["Package", "Interview", "Profile", "Stats", "Setup"]
+COMING_SOON = ["Profile", "Stats", "Setup"]
 
 
 @contextmanager

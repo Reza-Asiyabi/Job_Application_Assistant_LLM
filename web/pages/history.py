@@ -1,12 +1,15 @@
 """History page — browse, annotate and manage generated materials (history.json)."""
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
-from nicegui import ui
+from nicegui import run, ui
 
 from ..layout import frame
-from ..state import load_history, save_history
+from ..state import (add_history, compute_peak_stage, get_assistant,
+                     load_applications, load_history, save_applications,
+                     save_history, state)
 from ..theme import STATUS_COLORS
 
 HIST_STATUSES = ["Applied", "Interview", "Offer", "Rejected"]
@@ -86,6 +89,12 @@ def history_page():
                     ui.button("Clear", on_click=lambda: set_status("")) \
                         .props("flat dense no-caps size=sm")
                     ui.space()
+                    ui.button(icon="playlist_add", on_click=lambda: add_to_tracker()) \
+                        .props("flat round dense size=sm") \
+                        .tooltip("Add to application tracker")
+                    ui.button(icon="psychology", on_click=lambda: analyze_rejection()) \
+                        .props("flat round dense size=sm") \
+                        .tooltip("Analyze rejection (for rejected applications)")
                     ui.button(icon="content_copy", on_click=lambda: copy_content()) \
                         .props("flat round dense size=sm").tooltip("Copy content")
                     ui.button(icon="delete", on_click=lambda: delete_entry()) \
@@ -149,6 +158,80 @@ def history_page():
                 return
             ui.clipboard.write(hist[selected["i"]].get("content", ""))
             ui.notify("Copied", type="positive")
+
+        def add_to_tracker():
+            if selected["i"] is None:
+                ui.notify("Select an entry first.", type="warning")
+                return
+            e = hist[selected["i"]]
+            apps = load_applications()
+            entry = {
+                "id":             datetime.now().strftime("%Y%m%d_%H%M%S%f"),
+                "date_applied":   datetime.now().strftime("%Y-%m-%d"),
+                "date_interview": "",
+                "date_decision":  "",
+                "company":        e.get("company", ""),
+                "position":       e.get("role", ""),
+                "location":       "",
+                "source":         "",
+                "status":         "Applied",
+                "peak_stage":     compute_peak_stage("Applied", ""),
+                "salary_jd":      "",
+                "salary_req":     "",
+                "notes":          f"Materials via assistant — {e.get('type', '')} "
+                                  f"on {e.get('timestamp', '')}",
+            }
+            apps.insert(0, entry)
+            save_applications(apps)
+            ui.notify(f"Added to tracker: {entry['company'] or 'entry'} — "
+                      "review it on the Tracker page", type="positive")
+
+        def analyze_rejection():
+            if selected["i"] is None:
+                ui.notify("Select an entry first.", type="warning")
+                return
+            e = hist[selected["i"]]
+            msg = SimpleNamespace(text="")
+            with ui.dialog() as dialog, ui.card().classes("jda-card w-[520px]"):
+                ui.label(f"Analyze rejection — {e.get('company') or e.get('type', '')}") \
+                    .classes("font-medium")
+                ui.textarea(label="Rejection message (optional — improves the analysis)") \
+                    .bind_value(msg, "text") \
+                    .props("outlined").classes("w-full jda-input") \
+                    .style("min-height: 110px")
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Cancel", on_click=dialog.close).props("flat no-caps")
+
+                    async def _run():
+                        dialog.close()
+                        meta.set_text("Analyzing rejection…")
+                        buffer: list[str] = []
+                        timer = ui.timer(0.15, lambda: content.set_content("".join(buffer)))
+                        try:
+                            r = await run.io_bound(
+                                lambda: get_assistant().analyze_rejection(
+                                    company_name=e.get("company") or None,
+                                    role_title=e.get("role") or None,
+                                    rejection_message=(msg.text or "").strip() or None,
+                                    application_materials=e.get("content") or None,
+                                    model=state.model,
+                                    stream_callback=buffer.append))
+                            add_history("Rejection Analysis",
+                                        r.get("rejection_analysis", ""),
+                                        r.get("tokens_used", 0),
+                                        e.get("company", ""), e.get("role", ""))
+                            meta.set_text(f"Rejection analysis — "
+                                          f"{r.get('tokens_used', 0):,} tokens "
+                                          "(saved to history)")
+                        except Exception as exc:
+                            meta.set_text("Analysis failed")
+                            ui.notify(f"Analysis failed: {exc}", type="negative",
+                                      multi_line=True)
+                        finally:
+                            timer.cancel()
+                            content.set_content("".join(buffer))
+                    ui.button("Analyze", on_click=_run).props("unelevated no-caps")
+            dialog.open()
 
         def delete_entry():
             if selected["i"] is None:

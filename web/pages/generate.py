@@ -47,12 +47,15 @@ def generate_page():
                 with ui.row().classes("w-full gap-2 items-center"):
                     linkedin_btn = ui.button("LinkedIn Message", icon="send") \
                         .props("unelevated no-caps")
+                    ats_btn = ui.button("ATS Check", icon="fact_check") \
+                        .props("outline no-caps") \
+                        .tooltip("Keyword-match the current output against the JD")
 
             # ── Right: output ─────────────────────────────────────────────
             with ui.column().classes("flex-1 min-w-0 gap-1"):
                 out, status, latest = output_pane()
 
-        buttons = [summary_btn, letter_btn, linkedin_btn, extract_btn]
+        buttons = [summary_btn, letter_btn, linkedin_btn, ats_btn, extract_btn]
 
         def refresh_eval_chip():
             has_eval = getattr(get_assistant_or_none(), "_last_evaluation", None)
@@ -140,7 +143,27 @@ def generate_page():
                             r.get("tokens_used", 0), state.company, state.role)
             refresh_eval_chip()
 
+        async def run_ats():
+            if not jd_ok():
+                return
+            content = (latest["text"] or "").strip()
+            if not content:
+                ui.notify("Generate something first — the ATS check analyses "
+                          "the current output against the JD.", type="warning")
+                return
+
+            def call(cb):
+                return get_assistant().analyze_ats_fit(
+                    state.jd, content, model=state.model, stream_callback=cb)
+
+            r = await stream_call(call, out, status, latest, buttons,
+                                  working="Running ATS keyword analysis…")
+            if r:
+                add_history("ATS Check", r.get("ats_analysis", ""),
+                            r.get("tokens_used", 0), state.company, state.role)
+
         extract_btn.on_click(extract_details)
         summary_btn.on_click(gen_summary)
         letter_btn.on_click(gen_letter)
         linkedin_btn.on_click(gen_linkedin)
+        ats_btn.on_click(run_ats)
