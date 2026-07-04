@@ -13,7 +13,7 @@ import os, json
 from datetime import datetime
 
 from dotenv import load_dotenv
-from job_application_assistant import JobApplicationAssistant
+from job_application_assistant import JobApplicationAssistant, get_profile_paths
 from import_tracker import read_csv, detect_mapping, row_to_entry
 
 load_dotenv()
@@ -91,9 +91,12 @@ FM = "Consolas"
 HISTORY_FILE          = "history.json"
 APPLICATIONS_FILE     = "applications.json"
 CONFIG_FILE           = "config.json"
-PROFILE_FILE          = "profile.md"
-PROFILE_INSTRUCTIONS_FILE = "profile_instructions.md"
-PROFILE_PERSONAL_FILE = "profile_personal.md"
+# Profile file paths — overridable via PROFILE_PATH / PROFILE_INSTRUCTIONS_PATH /
+# PROFILE_PERSONAL_PATH env vars in .env (keeps personal files out of git)
+_profile_paths = get_profile_paths()
+PROFILE_FILE              = _profile_paths["legacy"]
+PROFILE_INSTRUCTIONS_FILE = _profile_paths["instructions"]
+PROFILE_PERSONAL_FILE     = _profile_paths["personal"]
 
 NAV_ITEMS = [
     ("⚙", "Setup"),
@@ -122,7 +125,12 @@ MODEL_COSTS = {
     "gpt-4":         0.040,
     "gpt-3.5-turbo": 0.001,
     "gpt-5.2":       0.020,
+    "gpt-5.1":       0.006,
+    "gpt-5-mini":    0.001,
 }
+
+# Selectable OpenAI models — override with an "openai_models" list in config.json
+DEFAULT_OPENAI_MODELS = ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-4o"]
 
 STATUSES = [
     "Watching", "Applied", "Phone Screen", "Interview",
@@ -498,14 +506,14 @@ class ProfileWizard(tk.Toplevel):
 
     def _save(self):
         md = self._generate_markdown()
-        path = Path(__file__).parent / PROFILE_PERSONAL_FILE
+        path = PROFILE_PERSONAL_FILE
         try:
             path.write_text(md, encoding="utf-8")
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save profile:\n{e}", parent=self)
             return
         messagebox.showinfo("Saved",
-                            f"Personal profile saved to {PROFILE_PERSONAL_FILE}.\n\n"
+                            f"Personal profile saved to {PROFILE_PERSONAL_FILE.name}.\n\n"
                             "Go to the Profile page to review and refine it.",
                             parent=self)
         if self.on_save:
@@ -738,7 +746,8 @@ class JobAssistantV3:
         self.ollama_url       = "http://localhost:11434"
         self.ollama_model     = ""
         self._ollama_url_var  = tk.StringVar(value="http://localhost:11434")
-        self.model_var        = tk.StringVar(value="gpt-4o")
+        self.model_var        = tk.StringVar(value=DEFAULT_OPENAI_MODELS[0])
+        self.openai_models    = list(DEFAULT_OPENAI_MODELS)
         self._font_size       = 10    # default; _load_config may override
         self._load_config()           # may override cv_path, model, font_size from saved config
         self.company_name       = tk.StringVar()
@@ -1187,7 +1196,7 @@ class JobAssistantV3:
         model_row = tk.Frame(self._openai_section, bg=C["surface"])
         model_row.pack(anchor="w", pady=(0, 8))
         self._model_btns = {}
-        for m in ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-5.2"]:
+        for m in self.openai_models:
             b = tk.Button(model_row, text=m, relief="flat", bd=0, cursor="hand2",
                           font=(FF, 8), bg=C["surface3"], fg=C["text_dim"],
                           activebackground=C["accent_dim"], activeforeground=C["text"],
@@ -1195,7 +1204,10 @@ class JobAssistantV3:
                           command=lambda mv=m: self._select_model(mv))
             b.pack(side="left", padx=(0, 4))
             self._model_btns[m] = b
-        self._select_model("gpt-4o")
+        # Keep the model restored by _load_config instead of clobbering it
+        current = self.model_var.get()
+        self._select_model(current if current in self.openai_models
+                           else self.openai_models[0])
         key_row = tk.Frame(self._openai_section, bg=C["surface"])
         key_row.pack(fill="x")
         tk.Label(key_row, text="API key", font=(FF, 8),
@@ -2490,16 +2502,15 @@ class JobAssistantV3:
 
     def _log_profile_source(self):
         """Log which profile files are being used."""
-        base = Path(__file__).parent
-        _instr    = (base / PROFILE_INSTRUCTIONS_FILE).exists()
-        _personal = (base / PROFILE_PERSONAL_FILE).exists()
-        _legacy   = (base / PROFILE_FILE).exists()
+        _instr    = PROFILE_INSTRUCTIONS_FILE.exists()
+        _personal = PROFILE_PERSONAL_FILE.exists()
+        _legacy   = PROFILE_FILE.exists()
         if _instr and _personal:
-            label = "profile_instructions.md + profile_personal.md"
+            label = f"{PROFILE_INSTRUCTIONS_FILE.name} + {PROFILE_PERSONAL_FILE.name}"
         elif _personal:
-            label = "profile_personal.md"
+            label = PROFILE_PERSONAL_FILE.name
         elif _legacy:
-            label = "profile.md (legacy)"
+            label = f"{PROFILE_FILE.name} (legacy)"
         else:
             label = "built-in"
         self._log(f"Profile:    {label}")
@@ -3072,25 +3083,23 @@ class JobAssistantV3:
 
     def _load_profile_editor(self):
         """Reload both profile editors from disk."""
-        base = Path(__file__).parent
-
         # Personal profile editor
         if hasattr(self, "profile_personal_editor"):
-            personal_path = base / PROFILE_PERSONAL_FILE
+            personal_path = PROFILE_PERSONAL_FILE
             try:
                 personal_content = personal_path.read_text(encoding="utf-8") if personal_path.exists() else ""
             except Exception as e:
-                personal_content = f"# Error reading {PROFILE_PERSONAL_FILE}\n# {e}"
+                personal_content = f"# Error reading {PROFILE_PERSONAL_FILE.name}\n# {e}"
             self.profile_personal_editor.delete(1.0, "end")
             self.profile_personal_editor.insert(1.0, personal_content)
 
         # Instructions editor
         if hasattr(self, "profile_instr_editor"):
-            instr_path = base / PROFILE_INSTRUCTIONS_FILE
+            instr_path = PROFILE_INSTRUCTIONS_FILE
             try:
                 instr_content = instr_path.read_text(encoding="utf-8") if instr_path.exists() else ""
             except Exception as e:
-                instr_content = f"# Error reading {PROFILE_INSTRUCTIONS_FILE}\n# {e}"
+                instr_content = f"# Error reading {PROFILE_INSTRUCTIONS_FILE.name}\n# {e}"
             self.profile_instr_editor.delete(1.0, "end")
             self.profile_instr_editor.insert(1.0, instr_content)
 
@@ -3101,9 +3110,8 @@ class JobAssistantV3:
 
     def _save_profile(self):
         """Save both profile files and reload the assistant."""
-        base = Path(__file__).parent
-        personal_path = base / PROFILE_PERSONAL_FILE
-        instr_path    = base / PROFILE_INSTRUCTIONS_FILE
+        personal_path = PROFILE_PERSONAL_FILE
+        instr_path    = PROFILE_INSTRUCTIONS_FILE
 
         personal_content = (self.profile_personal_editor.get(1.0, "end-1c")
                             if hasattr(self, "profile_personal_editor") else "")
@@ -3119,13 +3127,13 @@ class JobAssistantV3:
             try:
                 personal_path.write_text(personal_content, encoding="utf-8")
             except Exception as e:
-                errors.append(f"{PROFILE_PERSONAL_FILE}: {e}")
+                errors.append(f"{PROFILE_PERSONAL_FILE.name}: {e}")
 
         if instr_content.strip():
             try:
                 instr_path.write_text(instr_content, encoding="utf-8")
             except Exception as e:
-                errors.append(f"{PROFILE_INSTRUCTIONS_FILE}: {e}")
+                errors.append(f"{PROFILE_INSTRUCTIONS_FILE.name}: {e}")
 
         if errors:
             messagebox.showerror("Save Error", "Could not save:\n" + "\n".join(errors))
@@ -3174,7 +3182,10 @@ class JobAssistantV3:
                                if p["name"] == self.active_cv_name), None)
                 if active:
                     self.cv_path.set(active["path"])
-                # Restore model
+                # Restore model + selectable model list
+                saved_models = cfg.get("openai_models")
+                if isinstance(saved_models, list) and saved_models:
+                    self.openai_models = [str(m) for m in saved_models]
                 saved_model = cfg.get("model")
                 if saved_model:
                     self.model_var.set(saved_model)
@@ -3208,6 +3219,7 @@ class JobAssistantV3:
                 "cv_profiles":    self.cv_profiles,
                 "active_cv_name": self.active_cv_name,
                 "model":          self.model_var.get(),
+                "openai_models":  self.openai_models,
                 "geometry":       self.root.geometry(),
                 "font_size":      self._font_size,
                 "theme":          "light" if C["bg"] == C_LIGHT["bg"] else "dark",

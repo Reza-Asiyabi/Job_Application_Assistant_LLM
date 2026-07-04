@@ -36,7 +36,7 @@ def test_environment():
     try:
         import openai
         import dotenv
-        import PyPDF2
+        import pypdf
         print("   ✓ All dependencies installed")
         tests_passed += 1
     except ImportError as e:
@@ -87,7 +87,7 @@ def test_environment():
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "Say 'OK' if you can read this"}],
                 max_tokens=5
             )
@@ -104,9 +104,9 @@ def test_environment():
     print("\n7. Testing PDF extraction...")
     if Path(cv_path).exists():
         try:
-            import PyPDF2
+            import pypdf
             with open(cv_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
+                reader = pypdf.PdfReader(f)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text()

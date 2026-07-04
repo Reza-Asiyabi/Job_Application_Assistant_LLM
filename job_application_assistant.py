@@ -11,7 +11,36 @@ from pathlib import Path
 
 from openai import OpenAI
 from dotenv import load_dotenv
-import PyPDF2
+import pypdf
+
+
+def _resolve_profile_path(env_var: str, default_name: str) -> Path:
+    """Resolve a profile file path from an env var override or the default
+    filename next to this module. Relative overrides are taken relative to
+    the project directory."""
+    override = os.getenv(env_var, "").strip()
+    if override:
+        p = Path(override)
+        if not p.is_absolute():
+            p = Path(__file__).parent / p
+        return p
+    return Path(__file__).parent / default_name
+
+
+def get_profile_paths() -> dict:
+    """Return the resolved profile file paths as {"instructions", "personal", "legacy"}.
+
+    Overridable via env vars (set them in .env to keep personal files out of git):
+      PROFILE_INSTRUCTIONS_PATH  (default: profile_instructions.md)
+      PROFILE_PERSONAL_PATH      (default: profile_personal.md)
+      PROFILE_PATH               (default: profile.md — legacy single-file fallback)
+    """
+    load_dotenv()
+    return {
+        "instructions": _resolve_profile_path("PROFILE_INSTRUCTIONS_PATH", "profile_instructions.md"),
+        "personal":     _resolve_profile_path("PROFILE_PERSONAL_PATH",     "profile_personal.md"),
+        "legacy":       _resolve_profile_path("PROFILE_PATH",              "profile.md"),
+    }
 
 
 def _format_ollama_size(bytes_: int) -> str:
@@ -55,7 +84,13 @@ class JobApplicationAssistant:
         if cv_path is None:
             cv_path = os.getenv("CV_PATH", "cv.pdf")
 
-        client_kwargs: dict = {"api_key": actual_api_key}
+        client_kwargs: dict = {
+            "api_key":     actual_api_key,
+            # Retry transient failures (connection errors, 429, 5xx) with
+            # exponential backoff — handled by the OpenAI SDK itself.
+            "max_retries": 3,
+            "timeout":     float(os.getenv("OPENAI_TIMEOUT", "120")),
+        }
         if actual_base_url:
             client_kwargs["base_url"] = actual_base_url
 
@@ -128,7 +163,7 @@ class JobApplicationAssistant:
         text = ""
         try:
             with open(cv_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
+                reader = pypdf.PdfReader(f)
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
             return text.strip()
@@ -136,18 +171,18 @@ class JobApplicationAssistant:
             raise Exception(f"Error reading PDF: {e}")
 
     def _load_system_prompt(self) -> str:
-        """Load system prompt from profile files.
+        """Load system prompt from profile files (paths from get_profile_paths()).
 
         Priority:
-        1. Both profile_instructions.md + profile_personal.md exist  -> combine them
-        2. Only profile_personal.md exists                            -> use personal text (with note)
-        3. Neither exists but profile.md exists                       -> legacy fallback
-        4. Nothing found                                              -> built-in prompt
+        1. Both instructions + personal files exist  -> combine them
+        2. Only the personal file exists             -> use personal text
+        3. Neither exists but the legacy file exists -> legacy fallback
+        4. Nothing found                             -> built-in prompt
         """
-        base = Path(__file__).parent
-        instr_path    = base / "profile_instructions.md"
-        personal_path = base / "profile_personal.md"
-        legacy_path   = base / "profile.md"
+        paths = get_profile_paths()
+        instr_path    = paths["instructions"]
+        personal_path = paths["personal"]
+        legacy_path   = paths["legacy"]
 
         has_instr    = instr_path.exists()
         has_personal = personal_path.exists()
@@ -157,7 +192,7 @@ class JobApplicationAssistant:
                 instr_text    = instr_path.read_text(encoding="utf-8").strip()
                 personal_text = personal_path.read_text(encoding="utf-8").strip()
                 combined = instr_text + "\n\n" + personal_text
-                print(f"  Profile loaded from profile_instructions.md + profile_personal.md "
+                print(f"  Profile loaded from {instr_path.name} + {personal_path.name} "
                       f"({len(combined):,} characters)")
                 return combined
             except Exception as e:
@@ -167,19 +202,19 @@ class JobApplicationAssistant:
             try:
                 personal_text = personal_path.read_text(encoding="utf-8").strip()
                 if personal_text:
-                    print(f"  Profile loaded from profile_personal.md only ({len(personal_text):,} characters)")
+                    print(f"  Profile loaded from {personal_path.name} only ({len(personal_text):,} characters)")
                     return personal_text
             except Exception as e:
-                print(f"  Warning: could not read profile_personal.md ({e}), trying fallback")
+                print(f"  Warning: could not read {personal_path.name} ({e}), trying fallback")
 
         if legacy_path.exists():
             try:
                 text = legacy_path.read_text(encoding="utf-8").strip()
                 if text:
-                    print(f"  Profile loaded from profile.md (legacy) ({len(text):,} characters)")
+                    print(f"  Profile loaded from {legacy_path.name} (legacy) ({len(text):,} characters)")
                     return text
             except Exception as e:
-                print(f"  Warning: could not read profile.md ({e}), using built-in prompt")
+                print(f"  Warning: could not read {legacy_path.name} ({e}), using built-in prompt")
 
         print("  Profile loaded from built-in prompt")
         return self._builtin_system_prompt()
@@ -213,6 +248,26 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
     # Core API helper
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _create_completion(self, create_kwargs: dict):
+        """chat.completions.create with fallbacks for parameters that newer
+        reasoning models reject (temperature must be default; max_tokens was
+        replaced by max_completion_tokens). Transient errors are retried by
+        the SDK itself (max_retries)."""
+        create_kwargs = dict(create_kwargs)
+        for _ in range(3):
+            try:
+                return self.client.chat.completions.create(**create_kwargs)
+            except Exception as e:
+                msg = str(e)
+                if "temperature" in msg and "temperature" in create_kwargs:
+                    del create_kwargs["temperature"]
+                    continue
+                if "max_tokens" in msg and "max_tokens" in create_kwargs:
+                    create_kwargs["max_completion_tokens"] = create_kwargs.pop("max_tokens")
+                    continue
+                raise
+        return self.client.chat.completions.create(**create_kwargs)
+
     def _call_api(self, messages: list, model: str, temperature: float = 0.7,
                   stream_callback=None) -> dict:
         """
@@ -229,11 +284,11 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             {"content": str, "tokens_used": int}
         """
         if stream_callback is None:
-            response = self.client.chat.completions.create(
+            response = self._create_completion(dict(
                 model=model,
                 messages=messages,
                 temperature=temperature,
-            )
+            ))
             content = response.choices[0].message.content or ""
             # Ollama may not return usage — estimate from content length
             try:
@@ -254,12 +309,12 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
         if self.provider != "ollama":
             try:
                 create_kwargs["stream_options"] = {"include_usage": True}
-                stream = self.client.chat.completions.create(**create_kwargs)
+                stream = self._create_completion(create_kwargs)
             except TypeError:
                 del create_kwargs["stream_options"]
-                stream = self.client.chat.completions.create(**create_kwargs)
+                stream = self._create_completion(create_kwargs)
         else:
-            stream = self.client.chat.completions.create(**create_kwargs)
+            stream = self._create_completion(create_kwargs)
 
         collected = []
         tokens_used = 0
@@ -953,7 +1008,7 @@ Keep the report concise and actionable. No filler."""
         )
 
         try:
-            response = self.client.chat.completions.create(
+            response = self._create_completion(dict(
                 model=model,
                 messages=[
                     {"role": "system", "content": "You extract structured information from job descriptions. Output only valid JSON."},
@@ -961,7 +1016,7 @@ Keep the report concise and actionable. No filler."""
                 ],
                 temperature=0.0,
                 max_tokens=120,
-            )
+            ))
             raw = response.choices[0].message.content.strip()
             # Strip markdown fences if the model adds them despite instructions
             if raw.startswith("```"):
@@ -1147,13 +1202,13 @@ Be direct. Give specific numbers. Don't hedge with "it depends" — the candidat
         print("GENERATING COMPLETE APPLICATION PACKAGE")
         print("=" * 70)
 
-        eval_result    = self.evaluate_job_fit(job_description, model)
+        eval_result    = self.evaluate_job_fit(job_description, model=model)
         eval_text      = eval_result.get("evaluation", "")
 
-        summary_result = self.generate_cv_summary(job_description, eval_text, model)
+        summary_result = self.generate_cv_summary(job_description, eval_text, model=model)
 
         letter_result  = self.generate_cover_letter(
-            job_description, eval_text, company_name, role_title, model
+            job_description, eval_text, company_name, role_title, model=model
         )
 
         total_tokens = (
