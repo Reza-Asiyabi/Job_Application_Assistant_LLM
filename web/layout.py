@@ -12,8 +12,10 @@ NAV = [
     ("Evaluate", "/",          "query_stats"),
     ("Generate", "/generate",  "auto_awesome"),
     ("Q & A",    "/qa",        "quiz"),
+    ("Tracker",  "/tracker",   "table_rows"),
+    ("History",  "/history",   "history"),
 ]
-COMING_SOON = ["Package", "Interview", "History", "Profile", "Stats", "Tracker", "Setup"]
+COMING_SOON = ["Package", "Interview", "Profile", "Stats", "Setup"]
 
 
 @contextmanager

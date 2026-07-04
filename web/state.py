@@ -13,9 +13,21 @@ from pathlib import Path
 from job_application_assistant import JobApplicationAssistant
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG_FILE  = ROOT / "config.json"
-HISTORY_FILE = ROOT / "history.json"
+CONFIG_FILE       = ROOT / "config.json"
+HISTORY_FILE      = ROOT / "history.json"
+APPLICATIONS_FILE = ROOT / "applications.json"
 DEFAULT_MODELS = ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-4o"]
+
+# Tracker pipeline — same semantics as gui.py
+STATUSES = [
+    "Watching", "Applied", "Phone Screen", "Interview",
+    "Final Round", "Offer", "Accepted", "Rejected", "Withdrawn",
+]
+STAGE_ORDER = {
+    "Watching": 0, "Applied": 1, "Phone Screen": 2, "Interview": 3,
+    "Final Round": 4, "Offer": 5, "Accepted": 6,
+}
+TERMINAL_STATUSES = {"Rejected", "Withdrawn"}
 
 
 def _load_config() -> dict:
@@ -62,13 +74,51 @@ def get_assistant() -> JobApplicationAssistant:
     return _assistant
 
 
+def _load_json(path: Path) -> list:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_json(path: Path, data: list) -> None:
+    try:
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+    except Exception as e:
+        print(f"[web] save error ({path.name}): {e}")
+
+
+def load_history() -> list[dict]:
+    return _load_json(HISTORY_FILE)
+
+
+def save_history(history: list[dict]) -> None:
+    _save_json(HISTORY_FILE, history)
+
+
+def load_applications() -> list[dict]:
+    return _load_json(APPLICATIONS_FILE)
+
+
+def save_applications(apps: list[dict]) -> None:
+    _save_json(APPLICATIONS_FILE, apps)
+
+
+def compute_peak_stage(new_status: str, existing_peak: str) -> str:
+    """Advance peak_stage only on forward progression; terminal outcomes keep it."""
+    if new_status not in TERMINAL_STATUSES:
+        new_order  = STAGE_ORDER.get(new_status, 0)
+        peak_order = STAGE_ORDER.get(existing_peak, -1)
+        return new_status if new_order > peak_order else existing_peak
+    return existing_peak or "Applied"
+
+
 def add_history(entry_type: str, content: str, tokens: int = 0,
                 company: str = "", role: str = "") -> None:
     """Append an entry to history.json using the same schema as gui.py."""
-    try:
-        history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        history = []
+    history = load_history()
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "type":      entry_type,
@@ -82,8 +132,4 @@ def add_history(entry_type: str, content: str, tokens: int = 0,
     if entry_type == "Evaluation" and _assistant is not None:
         entry["evaluation_context"] = getattr(_assistant, "_last_evaluation", "")
     history.insert(0, entry)
-    try:
-        HISTORY_FILE.write_text(json.dumps(history, indent=2, ensure_ascii=False),
-                                encoding="utf-8")
-    except Exception as e:
-        print(f"[web] history save error: {e}")
+    save_history(history)

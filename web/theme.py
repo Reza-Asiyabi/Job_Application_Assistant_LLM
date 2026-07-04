@@ -6,6 +6,20 @@ one stylesheet and the theme switch is instant.
 
 ACCENT = "#e07640"   # coral — same in both themes (light uses a deeper shade)
 
+# Status pill colors (from gui.py STATUS_COLORS, extended to all pipeline stages)
+STATUS_COLORS = {
+    "Watching":     "#4e5268",
+    "Applied":      "#82c4e8",
+    "Phone Screen": "#b09be8",
+    "Interview":    "#e07640",
+    "Final Round":  "#e0a840",
+    "Offer":        "#3aaa6e",
+    "Accepted":     "#3aaa6e",
+    "Rejected":     "#d44e4e",
+    "Withdrawn":    "#888a9a",
+    "":             "#4e5268",
+}
+
 CSS = """
 body.body--dark {
     --jda-bg: #0f1117; --jda-surface: #181b26; --jda-surface2: #1e2233;
