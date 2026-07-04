@@ -523,6 +523,11 @@ result = assistant.generate_cover_letter(
 OPENAI_API_KEY=sk-your-key-here   # Required for OpenAI
 CV_PATH=your_cv.pdf               # Optional (default: cv.pdf)
 OPENAI_BASE_URL=                  # Optional: override API endpoint
+OPENAI_TIMEOUT=120                # Optional: request timeout in seconds
+
+# Optional: keep your filled-in profile in a private file outside git
+PROFILE_PERSONAL_PATH=My_Profile.md       # default: profile_personal.md
+PROFILE_INSTRUCTIONS_PATH=                # default: profile_instructions.md
 ```
 
 Ollama users do not need a `.env` file.
@@ -547,9 +552,13 @@ You can register multiple CV versions (Research CV, Engineering CV, etc.) in the
 
 | Model | Quality | Notes |
 |---|---|---|
-| `gpt-4o` | ⭐ Best | Recommended for final applications |
-| `gpt-4-turbo` | High | Good alternative to gpt-4o |
-| `gpt-3.5-turbo` | Budget | Good for testing and drafts (~90% cheaper) |
+| `gpt-5.2` | ⭐ Best | Recommended for final applications |
+| `gpt-5.1` | High | Great quality/cost balance for most use |
+| `gpt-5-mini` | Budget | Good for testing and drafts |
+| `gpt-4o` | Legacy | Previous default, still supported |
+
+The selectable list lives in `config.json` (`"openai_models"`) — edit it there when new
+models come out; no code change needed.
 
 **Estimated costs per action (gpt-4o):**
 - Evaluation: ~$0.10–0.25
