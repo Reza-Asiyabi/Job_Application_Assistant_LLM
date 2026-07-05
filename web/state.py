@@ -29,6 +29,13 @@ STAGE_ORDER = {
 }
 TERMINAL_STATUSES = {"Rejected", "Withdrawn"}
 
+# USD per 1k tokens (rough blended estimates — for the Stats cost display)
+MODEL_COSTS = {
+    "gpt-4o": 0.005, "gpt-4-turbo": 0.016, "gpt-4": 0.040,
+    "gpt-3.5-turbo": 0.001, "gpt-5.2": 0.020, "gpt-5.1": 0.006,
+    "gpt-5-mini": 0.001,
+}
+
 
 def _load_config() -> dict:
     try:
@@ -68,10 +75,42 @@ _assistant: JobApplicationAssistant | None = None
 
 
 def get_assistant() -> JobApplicationAssistant:
+    """Build (or reuse) the assistant using provider + active CV from config.json."""
     global _assistant
     if _assistant is None:
-        _assistant = JobApplicationAssistant()
+        cfg = _load_config()
+        provider = cfg.get("provider", "openai")
+        cv_path = None
+        active = next((p for p in cfg.get("cv_profiles", [])
+                       if p.get("name") == cfg.get("active_cv_name")), None)
+        if active and active.get("path"):
+            cv_path = active["path"]
+        kwargs: dict = {"cv_path": cv_path, "provider": provider}
+        if provider == "ollama":
+            base = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+            kwargs["base_url"] = base + "/v1"
+        _assistant = JobApplicationAssistant(**kwargs)
     return _assistant
+
+
+def reset_assistant() -> None:
+    """Drop the cached assistant so the next call reloads CV + profile + provider."""
+    global _assistant
+    _assistant = None
+
+
+def update_config(**kwargs) -> None:
+    """Merge keys into config.json without touching the tkinter GUI's other keys."""
+    cfg = _load_config()
+    cfg.update(kwargs)
+    try:
+        CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[web] config save error: {e}")
+
+
+def get_config() -> dict:
+    return _load_config()
 
 
 def _load_json(path: Path) -> list:

@@ -80,4 +80,20 @@ aside.q-drawer {
 .jda-output strong { color: var(--jda-text); }
 
 .jda-nav-active { color: var(--jda-accent) !important; }
+
+.jda-mono textarea {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+.jda-editor textarea {
+    height: calc(100vh - 360px) !important;
+    resize: none;
+}
+.jda-stat {
+    background: var(--jda-surface2);
+    border-radius: 6px;
+    padding: 8px 14px;
+    min-width: 90px;
+}
 """

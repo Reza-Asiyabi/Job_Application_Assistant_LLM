@@ -16,8 +16,11 @@ NAV = [
     ("Interview", "/interview", "school"),
     ("Tracker",   "/tracker",   "table_rows"),
     ("History",   "/history",   "history"),
+    ("Stats",     "/stats",     "insights"),
+    ("Profile",   "/profile",   "person"),
+    ("Setup",     "/setup",     "settings"),
 ]
-COMING_SOON = ["Profile", "Stats", "Setup"]
+COMING_SOON: list[str] = []
 
 
 @contextmanager
@@ -52,11 +55,12 @@ def frame(title: str):
                        .classes("w-full justify-start"))
                 if name == title:
                     btn.classes("jda-nav-active")
-            ui.separator().classes("my-2")
-            ui.label("COMING SOON").classes("text-xs jda-label q-px-md")
-            for name in COMING_SOON:
-                ui.label(name).classes("text-sm q-px-md q-py-xs") \
-                    .style("color: var(--jda-muted)")
+            if COMING_SOON:
+                ui.separator().classes("my-2")
+                ui.label("COMING SOON").classes("text-xs jda-label q-px-md")
+                for name in COMING_SOON:
+                    ui.label(name).classes("text-sm q-px-md q-py-xs") \
+                        .style("color: var(--jda-muted)")
 
     with ui.column().classes("w-full p-4"):
         yield
