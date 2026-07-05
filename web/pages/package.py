@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from nicegui import run, ui
 
-from ..helpers import jd_ok, output_pane
+from ..helpers import jd_ok, output_pane, refine_row
 from ..layout import frame
 from ..state import add_history, get_assistant, state
 
@@ -35,6 +35,8 @@ def package_page():
             # ── Right: combined streaming output ──────────────────────────
             with ui.column().classes("min-w-0 gap-1").style("flex: 1.2"):
                 out, status, latest = output_pane()
+                buttons = [go]
+                refine_row(out, status, latest, buttons)
 
         buffer: list[str] = []
 
@@ -74,6 +76,7 @@ def package_page():
                 total += r3.get("tokens_used", 0)
 
                 status.set_text(f"Package complete — {total:,} tokens ({state.model})")
+                latest["type"] = "Cover Letter"   # refine applies to the last step
                 add_history("Package", "".join(buffer), total,
                             state.company, state.role)
             except Exception as e:

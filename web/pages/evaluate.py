@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from ..helpers import jd_ok, output_pane, stream_call
+from ..helpers import jd_ok, output_pane, refine_row, stream_call
 from ..layout import frame
 from ..state import add_history, get_assistant, state
+from ..theme import STATUS_COLORS
 
 DEMO_OUTPUT = """\
 1. FIT ASSESSMENT
@@ -52,23 +53,59 @@ def evaluate_page(demo: bool = False):
 
             # ── Right: streaming evaluation ───────────────────────────────
             with ui.column().classes("flex-1 min-w-0 gap-1"):
+                badges = ui.row().classes("w-full gap-2 items-center")
+                badges.set_visibility(False)
                 out, status, latest = output_pane()
+                buttons = [go]
+                refine_row(out, status, latest, buttons)
                 if demo:
                     out.set_content(DEMO_OUTPUT)
                     latest["text"] = DEMO_OUTPUT
 
+        def show_badges(result: dict):
+            badges.clear()
+            score = result.get("score")
+            verdict = (result.get("verdict") or "").strip()
+            salary = (result.get("salary") or "").strip()
+            if score is None and not verdict and not salary:
+                badges.set_visibility(False)
+                return
+            with badges:
+                if score is not None:
+                    color = ("#3aaa6e" if score >= 75 else
+                             "#e0a840" if score >= 50 else "#d44e4e")
+                    ui.badge(f"Score {score}/100") \
+                        .style(f"background: {color}; color: #0f1117") \
+                        .props("outline=false").classes("text-sm px-3 py-1")
+                if verdict:
+                    v_color = {"yes": "#3aaa6e", "conditional": "#e0a840",
+                               "no": "#d44e4e"}.get(verdict.lower(),
+                                                    STATUS_COLORS[""])
+                    ui.badge(verdict) \
+                        .style(f"background: {v_color}; color: #0f1117") \
+                        .classes("text-sm px-3 py-1")
+                if salary:
+                    ui.badge(f"~ {salary}") \
+                        .style("background: var(--jda-surface2); "
+                               "color: var(--jda-text)") \
+                        .classes("text-sm px-3 py-1")
+            badges.set_visibility(True)
+
         async def evaluate():
             if not jd_ok():
                 return
+            badges.set_visibility(False)
 
             def call(cb):
                 return get_assistant().evaluate_job_fit(
                     state.jd, model=state.model, stream_callback=cb)
 
             result = await stream_call(fn=call, out=out, status=status,
-                                       latest=latest, buttons=[go],
+                                       latest=latest, buttons=buttons,
                                        working="Evaluating…")
             if result:
+                latest["type"] = "Evaluation"
+                show_badges(result)
                 add_history("Evaluation", result.get("evaluation", ""),
                             result.get("tokens_used", 0), state.company, state.role)
 

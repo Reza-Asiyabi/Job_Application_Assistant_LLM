@@ -44,3 +44,4 @@ REQUIREMENTS:
 - No banned language. No hollow adjectives.
 - Draw only from CV facts — never fabricate metrics or project details.
 - Output the letter only — no header, no label, no explanation.
+{{limit_note}}

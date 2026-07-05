@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from nicegui import ui
 
-from ..helpers import jd_ok, output_pane, stream_call
+from ..helpers import jd_ok, output_pane, refine_row, stream_call
 from ..layout import frame
 from ..state import add_history, get_assistant, state
 
@@ -45,8 +45,8 @@ def interview_page():
             # ── Right: output ─────────────────────────────────────────────
             with ui.column().classes("min-w-0 gap-1").style("flex: 1.2"):
                 out, status, latest = output_pane()
-
-        buttons = [prep_btn, followup_btn]
+                buttons = [prep_btn, followup_btn]
+                refine_row(out, status, latest, buttons)
 
         async def gen_prep():
             if not jd_ok():
@@ -61,6 +61,7 @@ def interview_page():
             r = await stream_call(call, out, status, latest, buttons,
                                   working="Preparing interview materials…")
             if r:
+                latest["type"] = "Interview Prep"
                 add_history("Interview Prep", r.get("interview_prep", ""),
                             r.get("tokens_used", 0), state.company, state.role)
 
@@ -78,6 +79,7 @@ def interview_page():
             r = await stream_call(call, out, status, latest, buttons,
                                   working="Writing follow-up email…")
             if r:
+                latest["type"] = "Follow-Up Email"
                 add_history("Follow-Up Email", r.get("followup_email", ""),
                             r.get("tokens_used", 0), state.company, state.role)
 

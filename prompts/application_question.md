@@ -34,3 +34,4 @@ REQUIREMENTS:
 - If there's a genuine gap relevant to the question, acknowledge it briefly and bridge confidently
 - No banned language, no hollow buzzwords, no inflated claims
 - Output the answer only — no label, no preamble
+{{limit_note}}

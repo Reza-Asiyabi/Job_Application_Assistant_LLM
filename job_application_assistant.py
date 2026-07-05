@@ -137,6 +137,9 @@ class JobApplicationAssistant:
         # Stores the most recent fit evaluation so Generate/Package tabs
         # can use it as context without requiring manual re-entry.
         self._last_evaluation: str | None = None
+        # Full message list of the most recent generation (including the
+        # assistant's reply) — lets refine_output() continue the conversation.
+        self._last_conversation: list | None = None
 
         print(f"  Job Application Assistant initialized ({provider})")
         print(f"  CV loaded: {len(self.cv_text)} characters")
@@ -330,6 +333,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
                 tokens_used = response.usage.total_tokens
             except (AttributeError, TypeError):
                 tokens_used = len(content) // 4
+            self._last_conversation = messages + [{"role": "assistant", "content": content}]
             return {"content": content, "tokens_used": tokens_used}
 
         # Streaming path
@@ -373,6 +377,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
         # Fall back to character estimate if Ollama didn't report token count
         if tokens_used == 0 and content:
             tokens_used = len(content) // 4
+        self._last_conversation = messages + [{"role": "assistant", "content": content}]
         return {"content": content, "tokens_used": tokens_used}
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -403,7 +408,10 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             stream_callback:  Optional callable(str) for streaming chunks.
 
         Returns:
-            {"evaluation": str, "model": str, "tokens_used": int}
+            {"evaluation": str, "model": str, "tokens_used": int,
+             "score": int|None, "verdict": str, "salary": str}
+            score/verdict/salary are parsed from the structured first line
+            (SCORE: NN/100 | VERDICT: ... | SALARY: ...) when present.
         """
         cv_context = self._create_cv_context()
         user_prompt = _render_prompt(
@@ -426,9 +434,83 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             "evaluation":  result["content"],
             "model":       model,
             "tokens_used": result["tokens_used"],
+            **self._parse_verdict_line(result["content"]),
         }
 
+    @staticmethod
+    def _parse_verdict_line(evaluation: str) -> dict:
+        """Parse the machine-readable header line of an evaluation.
+
+        Expected shape (first non-empty line):
+            SCORE: 78/100 | VERDICT: Conditional | SALARY: £65,000-80,000
+        Returns {"score": int|None, "verdict": str, "salary": str} —
+        empty values when the line is absent (e.g. old evaluations).
+        """
+        out = {"score": None, "verdict": "", "salary": ""}
+        for line in evaluation.splitlines():
+            line = line.strip().lstrip("*# ").rstrip("*")
+            if not line:
+                continue
+            if line.upper().startswith("SCORE"):
+                m = re.search(r"SCORE:\s*(\d{1,3})\s*/\s*100", line, re.IGNORECASE)
+                if m:
+                    out["score"] = max(0, min(100, int(m.group(1))))
+                m = re.search(r"VERDICT:\s*([^|]+?)\s*(?:\||$)", line, re.IGNORECASE)
+                if m:
+                    out["verdict"] = m.group(1).strip()
+                m = re.search(r"SALARY:\s*(.+?)\s*$", line, re.IGNORECASE)
+                if m:
+                    out["salary"] = m.group(1).strip()
+            break  # only inspect the first non-empty line
+        return out
+
+    def refine_output(self, instruction: str, model: str = "gpt-4o",
+                      stream_callback=None) -> dict:
+        """
+        Refine the most recent generation with a follow-up instruction,
+        continuing the same conversation instead of regenerating from scratch.
+        Chained refinements keep extending the same conversation.
+
+        Args:
+            instruction:      What to change ("shorter", "more technical",
+                              "mention project X", ...).
+            model:            OpenAI model to use.
+            stream_callback:  Optional callable(str) for streaming chunks.
+
+        Returns:
+            {"refined": str, "model": str, "tokens_used": int}
+
+        Raises:
+            ValueError if nothing has been generated yet.
+        """
+        if not self._last_conversation:
+            raise ValueError("Nothing to refine yet — generate something first.")
+        user_prompt = _render_prompt("refine", instruction=instruction)
+        messages = self._last_conversation + [{"role": "user", "content": user_prompt}]
+        result = self._call_api(
+            messages=messages,
+            model=model,
+            temperature=0.5,
+            stream_callback=stream_callback,
+        )
+        return {
+            "refined":     result["content"],
+            "model":       model,
+            "tokens_used": result["tokens_used"],
+        }
+
+    @staticmethod
+    def _limit_note(word_limit: int | None) -> str:
+        if not word_limit:
+            return ""
+        return (
+            f"\nHARD LENGTH CONSTRAINT: the output must be at most {word_limit} words. "
+            "This overrides any other length guidance above. Count carefully — "
+            "application portals reject over-length answers."
+        )
+
     def generate_cv_summary(self, job_description: str, fit_evaluation: str = None,
+                             word_limit: int = None,
                              model: str = "gpt-4o", stream_callback=None) -> dict:
         """
         Generate a tailored CV summary for a specific role.
@@ -454,6 +536,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             cv_context=cv_context,
             job_description=job_description,
             eval_block=eval_block,
+            limit_note=self._limit_note(word_limit),
         )
 
         result = self._call_api(
@@ -473,7 +556,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
 
     def generate_cover_letter(self, job_description: str, fit_evaluation: str = None,
                                company_name: str = None, role_title: str = None,
-                               tone: str = "hybrid",
+                               tone: str = "hybrid", word_limit: int = None,
                                model: str = "gpt-4o", stream_callback=None) -> dict:
         """
         Generate a tailored cover letter for a specific role.
@@ -508,6 +591,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             company_info=company_info,
             role_info=role_info,
             tone_instruction=tone_instruction,
+            limit_note=self._limit_note(word_limit),
         )
 
         result = self._call_api(
@@ -525,8 +609,8 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
         }
 
     def answer_application_question(self, job_description: str, question: str,
-                                    fit_evaluation: str = None, model: str = "gpt-4o",
-                                    stream_callback=None) -> dict:
+                                    fit_evaluation: str = None, word_limit: int = None,
+                                    model: str = "gpt-4o", stream_callback=None) -> dict:
         """
         Answer a specific application or interview question.
 
@@ -552,6 +636,7 @@ Meta-Rules: Strategic truth over pleasing language. If a role is a bad fit, say 
             job_description=job_description,
             eval_block=eval_block,
             question=question,
+            limit_note=self._limit_note(word_limit),
         )
 
         result = self._call_api(

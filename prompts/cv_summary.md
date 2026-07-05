@@ -31,3 +31,4 @@ REQUIREMENTS:
 - Consistent first-person voice (implied "I" or explicit) — do not mix.
 - No banned language. No hollow adjectives. No AI-isms.
 - Output ONLY the summary text — no header, no explanation.
+{{limit_note}}

@@ -3,11 +3,19 @@ from __future__ import annotations
 
 from nicegui import run, ui
 
-from ..helpers import jd_ok, output_pane, stream_call
+from ..helpers import jd_ok, output_pane, refine_row, stream_call
 from ..layout import frame
 from ..state import add_history, get_assistant, state
 
 TONES = ["hybrid", "research", "engineering"]
+
+
+def _parse_limit(value) -> int | None:
+    try:
+        n = int(value)
+        return n if n > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 @ui.page("/generate")
@@ -44,6 +52,9 @@ def generate_page():
                         .props("unelevated no-caps")
                     tone = ui.select(TONES, value="hybrid", label="Tone") \
                         .props("outlined dense options-dense").classes("w-36")
+                    limit = ui.number(label="Word limit", min=0) \
+                        .props("outlined dense").classes("w-28") \
+                        .tooltip("Optional — hard cap for portals with length limits")
                 with ui.row().classes("w-full gap-2 items-center"):
                     linkedin_btn = ui.button("LinkedIn Message", icon="send") \
                         .props("unelevated no-caps")
@@ -54,8 +65,9 @@ def generate_page():
             # ── Right: output ─────────────────────────────────────────────
             with ui.column().classes("flex-1 min-w-0 gap-1"):
                 out, status, latest = output_pane()
-
-        buttons = [summary_btn, letter_btn, linkedin_btn, ats_btn, extract_btn]
+                buttons = [summary_btn, letter_btn, linkedin_btn, ats_btn,
+                           extract_btn]
+                refine_row(out, status, latest, buttons)
 
         def refresh_eval_chip():
             has_eval = getattr(get_assistant_or_none(), "_last_evaluation", None)
@@ -96,11 +108,13 @@ def generate_page():
                 a = get_assistant()
                 return a.generate_cv_summary(
                     state.jd, fit_evaluation=a._last_evaluation,
+                    word_limit=_parse_limit(limit.value),
                     model=state.model, stream_callback=cb)
 
             r = await stream_call(call, out, status, latest, buttons,
                                   working="Writing CV summary…")
             if r:
+                latest["type"] = "CV Summary"
                 add_history("CV Summary", r.get("summary", ""),
                             r.get("tokens_used", 0), state.company, state.role)
             refresh_eval_chip()
@@ -115,11 +129,13 @@ def generate_page():
                 return a.generate_cover_letter(
                     state.jd, fit_evaluation=a._last_evaluation,
                     company_name=state.company or None, role_title=state.role or None,
-                    tone=tone_val, model=state.model, stream_callback=cb)
+                    tone=tone_val, word_limit=_parse_limit(limit.value),
+                    model=state.model, stream_callback=cb)
 
             r = await stream_call(call, out, status, latest, buttons,
                                   working=f"Writing cover letter ({tone_val})…")
             if r:
+                latest["type"] = f"Cover Letter ({tone_val.title()})"
                 add_history(f"Cover Letter ({tone_val.title()})",
                             r.get("cover_letter", ""),
                             r.get("tokens_used", 0), state.company, state.role)
@@ -139,6 +155,7 @@ def generate_page():
             r = await stream_call(call, out, status, latest, buttons,
                                   working="Writing LinkedIn message…")
             if r:
+                latest["type"] = "LinkedIn"
                 add_history("LinkedIn", r.get("linkedin_message", ""),
                             r.get("tokens_used", 0), state.company, state.role)
             refresh_eval_chip()
@@ -159,6 +176,7 @@ def generate_page():
             r = await stream_call(call, out, status, latest, buttons,
                                   working="Running ATS keyword analysis…")
             if r:
+                latest["type"] = "ATS Check"
                 add_history("ATS Check", r.get("ats_analysis", ""),
                             r.get("tokens_used", 0), state.company, state.role)
 

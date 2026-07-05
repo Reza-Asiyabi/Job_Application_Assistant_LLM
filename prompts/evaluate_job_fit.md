@@ -6,7 +6,14 @@
 
 ---
 
-Provide a comprehensive, honest job fit evaluation. Structure it exactly as follows:
+Provide a comprehensive, honest job fit evaluation.
+
+THE VERY FIRST LINE of your response must be exactly this machine-readable summary
+(no heading before it, fill in real values):
+
+SCORE: NN/100 | VERDICT: Yes/Conditional/No | SALARY: expected range
+
+Then a blank line, then structure the evaluation exactly as follows:
 
 1. FIT ASSESSMENT
 State: Strong fit / Partial fit / Weak fit.
